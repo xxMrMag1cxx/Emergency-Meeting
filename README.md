@@ -8,7 +8,8 @@ med egna plugins.
 
 - [x] **Steg 1:** Servern tar emot spelet, läser spelarens namn och version,
       och svarar med ett eget meddelande som syns i spelet
-- [ ] **Steg 2:** HTTPS, så att telefoner och surfplattor kan ansluta
+- [x] **Steg 2:** HTTPS via en Cloudflare-tunnel, så att spelet kan ansluta
+      från andra enheter (behöver testas med riktiga spelet)
 - [ ] **Steg 3:** Skapa spel och få en spelkod
 - [ ] **Steg 4:** Gå med i ett spel med spelkoden, flera spelare i samma lobby
 - [ ] **Steg 5:** Skicka speldata mellan spelarna, så att man kan spela en hel runda
@@ -25,83 +26,81 @@ python3 --version
 ```
 
 Om det står `Python 3.8` eller högre är allt klart. Om det står något annat,
-eller om datorn frågar om du vill installera utvecklarverktyg, ladda hellre
-ner senaste Python från <https://www.python.org/downloads/macos/>
+ladda ner senaste Python från <https://www.python.org/downloads/macos/>
 (välj "macOS 64-bit universal2 installer") och installera det.
 
-Servern använder bara det som följer med Python, så inget annat behöver
-installeras.
+Servern använder bara det som följer med Python.
 
 ### 2. Hämta koden
 
-Enklast: på GitHub-sidan för projektet, klicka på den gröna knappen **Code**
-och välj **Download ZIP**. Packa upp mappen, till exempel på skrivbordet.
+På GitHub-sidan för projektet: klicka på den gröna knappen **Code** och välj
+**Download ZIP**. Packa upp mappen. Var den hamnar spelar ingen roll, alla
+filer nedan startas med dubbelklick i Finder.
 
-### 3. Starta servern
+> Första gången macOS säger att en fil inte går att öppna eftersom den kommer
+> från internet: högerklicka på filen, välj **Öppna** och sedan **Öppna** igen.
 
-Dubbelklicka på **`start.command`** i mappen.
+### 3. Hämta cloudflared (en gång)
 
-> Första gången kan macOS säga att filen inte går att öppna eftersom den kommer
-> från internet. Högerklicka då på filen, välj **Öppna** och sedan **Öppna** igen.
-> Om macOS frågar om Python får ta emot inkommande anslutningar, välj **Tillåt**.
+Dubbelklicka på **`hamta-cloudflared.command`**.
 
-Det går också att starta från Terminal:
+Among Us kräver HTTPS när spelet och servern är på olika enheter. Programmet
+cloudflared ger servern en gratis HTTPS-adress via Cloudflare, utan konto.
+Skriptet väljer själv en version som fungerar på er macOS.
+
+### 4. Starta servern
+
+Dubbelklicka på **`start.command`**. Om macOS frågar om Python får ta emot
+inkommande anslutningar, välj **Tillåt**.
+
+Efter 10–30 sekunder skriver servern ut **HTTPS ÄR KLART!** och en adress,
+till exempel:
 
 ```
-cd ~/Desktop/emergency-meeting
-python3 -m server
+https://kingston-inside-best-graphic.trycloudflare.com
 ```
 
-När servern är igång visas Macens adress i hemnätverket, till exempel
-`192.168.1.23`. Den adressen behövs i nästa steg.
+Adressen byts varje gång servern startas om.
 
 Stäng av servern med **Ctrl+C**.
 
-### 4. Testa utan spelet
+### 5. Testa utan spelet (valfritt)
 
-Låt servern vara igång och öppna ett **nytt** Terminal-fönster:
-
-```
-cd ~/Desktop/emergency-meeting
-python3 tools/testklient.py
-```
-
-Testklienten låtsas vara Among Us. Om allt fungerar skriver den ut
-välkomstmeddelandet från servern och sedan `Allt fungerar!`.
+Låt servern vara igång och dubbelklicka på **`testa.command`**. Testklienten
+låtsas vara Among Us. Om allt fungerar skriver den `Allt fungerar!`.
 
 ## Ansluta med Among Us
 
-### På en PC (Steam, Epic eller Microsoft Store) i samma wifi
+Enheten som spelar måste vara på **samma wifi** som Macen.
 
-1. Gå till <https://impostor.github.io/Impostor/> (ett verktyg från
-   Impostor-projektet som fungerar för alla kompatibla servrar).
-2. Välj dator som plattform, protokoll **http**, adress = Macens adress (t.ex.
-   `192.168.1.23`), port `22023`, och ett namn, t.ex. `Emergency Meeting`.
-3. Ladda ner filen `regionInfo.json` och följ instruktionerna på sidan för
-   var den ska ligga.
-4. Starta Among Us, välj servern **Emergency Meeting** och tryck på
+1. Öppna HTTPS-adressen som servern skrev ut i en webbläsare på enheten
+   som ska spela.
+2. Tryck på **Lägg till i Among Us**. Spelet öppnas och servern läggs till.
+   På PC kan man i stället ladda ner `regionInfo.json` från samma sida och
+   lägga den i spelets mapp (sidan visar var).
+3. Starta om Among Us helt, välj servern **Emergency Meeting** och tryck på
    **Create Game**.
 
-Om allt fungerar visar spelet välkomstmeddelandet från servern. Det betyder
-att spelet och servern pratar med varandra. Att faktiskt skapa ett spel kommer
-i steg 3.
+Om allt fungerar visar spelet välkomstmeddelandet från servern. Att faktiskt
+skapa ett spel kommer i steg 3.
 
-### På telefon eller surfplatta
-
-Mobilversionerna av Among Us kräver HTTPS. Det fixar vi i steg 2.
+Eftersom adressen byts vid varje omstart behöver man göra om steg 1–2 efter
+att servern har startats om.
 
 ## Inställningar
 
 Inställningarna finns i `config.json`:
 
-| Inställning       | Vad den gör |
-|-------------------|-------------|
-| `server_name`     | Serverns namn |
-| `listen_ip`       | `0.0.0.0` = lyssna på alla nätverk. Behöver sällan ändras |
-| `port`            | Port för både HTTP och spel. Among Us använder `22023` |
-| `public_ip`       | `auto` = Macens adress i hemnätverket. Kan sättas till en egen adress |
-| `welcome_message` | Texten som visas i spelet. `{namn}` byts mot spelarens namn |
-| `debug`           | `true` = visa varje paket i loggen, bra vid felsökning |
+| Inställning        | Vad den gör |
+|--------------------|-------------|
+| `server_name`      | Serverns namn |
+| `listen_ip`        | `0.0.0.0` = lyssna på alla nätverk. Behöver sällan ändras |
+| `port`             | Port för både HTTP och spel. Among Us använder `22023` |
+| `public_ip`        | `auto` = Macens adress i hemnätverket. Kan sättas till en egen adress |
+| `welcome_message`  | Texten som visas i spelet. `{namn}` byts mot spelarens namn |
+| `https_tunnel`     | `true` = starta HTTPS-tunneln med cloudflared |
+| `cloudflared_path` | `auto` = leta efter cloudflared själv (projektmappen först) |
+| `debug`            | `true` = visa varje paket i loggen, bra vid felsökning |
 
 ## Så här är koden uppbyggd
 
@@ -110,6 +109,9 @@ server/
   __main__.py    startar allt
   config.py      läser config.json
   matchmaker.py  HTTP-delen: spelet frågar var servern finns
+  tunnel.py      startar cloudflared och läser ut HTTPS-adressen
+  webpage.py     startsidan med knappen "Lägg till i Among Us"
+  region.py      bygger regionInfo.json och amongus://-länken
   hazel.py       nätverkslagret: kvitton, ping och omsändning av paket
   handshake.py   läser spelets första paket (namn, version, plattform)
   game.py        spellogiken: vad servern gör med meddelandena
@@ -117,25 +119,38 @@ server/
   protocol.py    alla siffror och namn som Among Us använder
 tools/
   testklient.py  låtsas-Among Us för att testa servern
-start.command    dubbelklicka för att starta på Mac
+start.command               starta servern
+testa.command               kör testklienten
+hamta-cloudflared.command   hämtar cloudflared
 ```
 
 Så här går en anslutning till:
 
-1. Spelet frågar servern via **HTTP** (TCP-port 22023): "Får jag en token?"
-   och "Var ska jag skapa spelet?". Servern svarar med Macens adress.
-2. Spelet skickar ett **Hello**-paket via **UDP** (port 22023) med namn och version.
+```
+Among Us --HTTPS--> Cloudflare --tunnel--> cloudflared --HTTP--> servern (TCP 22023)
+Among Us -----------------------UDP-----------------------> servern (UDP 22023)
+```
+
+1. Spelet frågar servern via **HTTPS**: "Får jag en token?" och "Var ska jag
+   skapa spelet?". Servern svarar med Macens adress i hemnätverket.
+2. Spelet skickar ett **Hello**-paket direkt till Macen via **UDP** med namn
+   och version.
 3. Spelet skickar **HostGame** ("skapa spel"). Servern svarar med
    välkomstmeddelandet och kopplar bort spelaren.
 
 ## Felsökning
 
-- **"Address already in use"**: servern körs redan i ett annat fönster. Stäng det.
-- **Spelet hittar inte servern**: kolla att PC:n och Macen är på samma wifi,
-  att adressen stämmer och att macOS-brandväggen tillåter Python
+- **Svart skärm och inget händer i serverfönstret**: spelet når inte servern.
+  Kolla att ni använder HTTPS-adressen från *senaste* starten av servern.
+- **"försökte ansluta med HTTPS direkt till port 22023"** i loggen: spelet är
+  inställt på Macens IP-adress i stället för HTTPS-adressen. Lägg till servern
+  igen via HTTPS-adressen.
+- **Token hämtas men inget mer händer**: spelet når HTTPS-delen men inte UDP.
+  Kolla att enheten är på samma wifi och att brandväggen tillåter Python
   (Systeminställningar → Säkerhet och integritet → Brandvägg).
+- **"Address already in use"**: servern körs redan i ett annat fönster. Stäng det.
 - **Spelet säger fel version**: skriv ner vilken version spelet har (står uppe
-  till vänster i huvudmenyn) och vad loggen visar, så felsöker vi.
+  till vänster i huvudmenyn) och vad loggen visar.
 - Sätt `"debug": true` i `config.json` för att se allt som skickas.
 
 ## Tack

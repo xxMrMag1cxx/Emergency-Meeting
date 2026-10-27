@@ -15,12 +15,16 @@ import asyncio  # noqa: E402
 import logging  # noqa: E402
 
 from . import __version__  # noqa: E402
-from .config import CONFIG_FILE, load_config  # noqa: E402
+from .config import CONFIG_FILE, PROJECT_DIR, load_config  # noqa: E402
 from .game import Game  # noqa: E402
 from .hazel import HazelServer  # noqa: E402
-from .matchmaker import start_matchmaker  # noqa: E402
+from .matchmaker import ServerInfo, start_matchmaker  # noqa: E402
+from .region import region_info_json  # noqa: E402
+from .tunnel import Tunnel, find_cloudflared  # noqa: E402
 
 log = logging.getLogger("server")
+
+LINE = "=" * 64
 
 
 def setup_logging(debug: bool) -> None:
@@ -31,13 +35,32 @@ def setup_logging(debug: bool) -> None:
     )
 
 
+def announce_tunnel(info: ServerInfo, url: str) -> None:
+    """Körs när HTTPS-adressen fungerar."""
+    info.tunnel_url = url
+    region_file = PROJECT_DIR / "regionInfo.json"
+    region_file.write_text(region_info_json(info.config.server_name, url, 443), encoding="utf-8")
+
+    print(LINE, flush=True)
+    print("  HTTPS ÄR KLART!")
+    print()
+    print("  Öppna den här adressen på enheten som ska spela:")
+    print(f"      {url}")
+    print()
+    print("  Där finns en knapp som lägger till servern i Among Us.")
+    print(f"  (En färdig {region_file.name} har också sparats i projektmappen.)")
+    print()
+    print("  Obs: adressen byts varje gång servern startas om.")
+    print(LINE, flush=True)
+
+
 async def run() -> None:
     config = load_config()
     setup_logging(config.debug)
-    public_ip = config.resolved_public_ip()
+    info = ServerInfo(config, config.resolved_public_ip())
 
     try:
-        httpd = start_matchmaker(config, public_ip)
+        httpd = start_matchmaker(info)
     except OSError as error:
         log.error("Kunde inte starta HTTP-servern på port %s: %s", config.port, error)
         log.error("Kör servern redan i ett annat fönster? Stäng det först.")
@@ -56,26 +79,35 @@ async def run() -> None:
         httpd.shutdown()
         return
 
-    line = "=" * 60
-    print(line)
+    print(LINE)
     print(f"  {config.server_name}  (version {__version__})")
-    print(line)
+    print(LINE)
     print(f"  Servern körs på port {config.port} (TCP + UDP)")
-    print(f"  Macens adress i nätverket: {public_ip}")
-    print()
-    print("  Testa i webbläsaren:")
-    print(f"      http://{public_ip}:{config.port}")
-    print()
-    print("  Lägg till servern i Among Us (PC):")
-    print(f"      Adress: http://{public_ip}   Port: {config.port}")
-    print()
+    print(f"  Macens adress i nätverket: {info.public_ip}")
     print(f"  Inställningar: {CONFIG_FILE.name}")
     print("  Stäng av servern med Ctrl+C")
-    print(line)
+    print(LINE, flush=True)
+
+    tunnel = None
+    if config.https_tunnel:
+        binary = find_cloudflared(config.cloudflared_path)
+        if binary:
+            tunnel = Tunnel(binary, config.port, lambda url: announce_tunnel(info, url))
+            try:
+                tunnel.start()
+            except OSError as error:
+                log.error("Kunde inte starta cloudflared: %s", error)
+                tunnel = None
+        else:
+            log.warning("cloudflared saknas, så det blir ingen HTTPS-adress.")
+            log.warning("Among Us på andra enheter kan inte ansluta utan HTTPS.")
+            log.warning("Fixa det: dubbelklicka på hamta-cloudflared.command och starta om servern.")
 
     try:
         await hazel.maintenance_loop()
     finally:
+        if tunnel:
+            tunnel.stop()
         transport.close()
         httpd.shutdown()
 

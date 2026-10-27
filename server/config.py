@@ -44,6 +44,13 @@ class Config:
         "Att skapa spel kommer i nästa steg."
     )
 
+    # Starta en HTTPS-tunnel med cloudflared (krävs för att Among Us
+    # ska kunna ansluta från en annan enhet än Macen).
+    https_tunnel: bool = True
+
+    # Var cloudflared finns. "auto" = leta själv (projektmappen först).
+    cloudflared_path: str = "auto"
+
     # Sätt till true för att se varenda paket i loggen (bra för felsökning).
     debug: bool = False
 

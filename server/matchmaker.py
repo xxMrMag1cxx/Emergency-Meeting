@@ -11,6 +11,10 @@ via vanlig HTTP, samma sorts trafik som en webbsida använder:
                            "Vilka offentliga spel finns?"
 
 Sedan ansluter spelet via UDP till adressen vi gav det.
+
+Among Us kräver HTTPS om spelet körs på en annan enhet än servern.
+Det löser vi med en tunnel (se tunnel.py): tunneln tar emot HTTPS från
+internet och skickar vidare det som vanlig HTTP hit.
 """
 
 from __future__ import annotations
@@ -27,6 +31,8 @@ from urllib.parse import urlparse
 
 from .config import Config
 from .protocol import DisconnectReason
+from .region import region_info_json
+from .webpage import render
 
 log = logging.getLogger("http")
 
@@ -36,13 +42,52 @@ def ip_to_number(ip: str) -> int:
     return struct.unpack("<I", socket.inet_aton(ip))[0]
 
 
+class ServerInfo:
+    """Saker som HTTP-delen behöver veta och som kan ändras medan servern kör."""
+
+    def __init__(self, config: Config, public_ip: str):
+        self.config = config
+        self.public_ip = public_ip
+        self.tunnel_url = ""  # fylls i när tunneln är igång
+
+
 class MatchmakerHandler(BaseHTTPRequestHandler):
     # Sätts av start_matchmaker() nedan.
-    config: Config
-    public_ip: str
+    info: ServerInfo
 
     server_version = "EmergencyMeeting"
     protocol_version = "HTTP/1.1"
+    timeout = 30  # sekunder innan en tyst anslutning stängs
+
+    @property
+    def config(self) -> Config:
+        return self.info.config
+
+    # --- Felsökning ------------------------------------------------------
+
+    def handle(self) -> None:
+        # Kika på första byten innan vi läser något. HTTPS (TLS) börjar
+        # alltid med byte 0x16, vanlig HTTP börjar med en bokstav (GET, PUT...).
+        try:
+            first = self.connection.recv(1, socket.MSG_PEEK)
+        except OSError:
+            return
+        if first == b"\x16":
+            log.warning(
+                "%s försökte ansluta med HTTPS direkt till port %s. "
+                "Det går inte, använd HTTPS-adressen från tunneln i stället.",
+                self.client_address[0],
+                self.config.port,
+            )
+            return
+        super().handle()
+
+    def log_message(self, format: str, *args: Any) -> None:
+        # Stäng av den inbyggda loggningen, vi loggar själva nedan.
+        pass
+
+    def log_error(self, format: str, *args: Any) -> None:
+        log.warning("HTTP-fel från %s: %s", self.client_address[0], format % args)
 
     # --- Hjälpfunktioner -------------------------------------------------
 
@@ -75,27 +120,46 @@ class MatchmakerHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         return parsed.path.rstrip("/") or "/", parsed.query
 
-    def log_message(self, format: str, *args: Any) -> None:
-        # Stäng av den inbyggda loggningen, vi loggar själva nedan.
-        pass
+    def _via_https(self) -> bool:
+        """Kom förfrågan via tunneln (HTTPS) eller direkt (HTTP)?"""
+        if self.headers.get("X-Forwarded-Proto", "").lower() == "https":
+            return True
+        return '"https"' in self.headers.get("Cf-Visitor", "")
+
+    def _public_address(self) -> Tuple[str, int, bool]:
+        """Adressen som spelet ska använda, sett från den som frågar."""
+        host = (self.headers.get("Host") or self.info.public_ip).split(":")[0]
+        if self._via_https():
+            return f"https://{host}", 443, True
+        return f"http://{host}", self.config.port, False
 
     def _host_server(self) -> dict:
-        return {"Ip": ip_to_number(self.public_ip), "Port": self.config.port}
+        return {"Ip": ip_to_number(self.info.public_ip), "Port": self.config.port}
+
+    def _who(self) -> str:
+        via = "via HTTPS-tunneln" if self._via_https() else "direkt"
+        ip = self.headers.get("Cf-Connecting-Ip") or self.client_address[0]
+        return f"{ip}, {via}"
 
     # --- Förfrågningar ---------------------------------------------------
 
     def do_GET(self) -> None:
         path, _query = self._path()
-        log.debug("GET %s från %s", self.path, self.client_address[0])
+        log.debug("GET %s (%s)", self.path, self._who())
 
         if path == "/":
-            log.info("Någon öppnade startsidan från %s", self.client_address[0])
-            self._send(
-                200,
-                f"{self.config.server_name} är igång!\n"
-                "Lägg till servern i Among Us för att ansluta.\n",
-                "text/plain; charset=utf-8",
-            )
+            url, port, is_https = self._public_address()
+            log.info("Någon öppnade startsidan (%s)", self._who())
+            page = render(self.config.server_name, url, port, is_https, self.info.tunnel_url)
+            self._send(200, page, "text/html; charset=utf-8")
+
+        elif path == "/regionInfo.json":
+            url, port, _ = self._public_address()
+            log.info("Någon laddade ner regionInfo.json (%s)", self._who())
+            self._send(200, region_info_json(self.config.server_name, url, port), "application/json")
+
+        elif path == "/ping":
+            self._send(200, "pong")
 
         elif path == "/api/filters":
             self._send(200, {"filters": ["Tags", "NumImposters"]})
@@ -119,6 +183,9 @@ class MatchmakerHandler(BaseHTTPRequestHandler):
                 {"Errors": [{"Reason": DisconnectReason.GAME_NOT_FOUND}], "Game": None},
             )
 
+        elif path == "/favicon.ico":
+            self._send(404, "")
+
         else:
             log.info("Okänd GET-förfrågan: %s", self.path)
             self._send(404, "Hittades inte")
@@ -132,7 +199,7 @@ class MatchmakerHandler(BaseHTTPRequestHandler):
             # får komma in. Token är JSON som är base64-kodad.
             body = body or {}
             username = body.get("Username", "?")
-            log.info("Spelare '%s' hämtade en token (steg 1 av anslutningen)", username)
+            log.info("Spelare '%s' hämtade en token (steg 1 av anslutningen, %s)", username, self._who())
             token = {
                 "Content": {
                     "Puid": body.get("Puid", ""),
@@ -159,7 +226,7 @@ class MatchmakerHandler(BaseHTTPRequestHandler):
         if path == "/api/games":
             log.info(
                 "Spelet vill skapa ett spel, vi skickar det till %s:%s (steg 2)",
-                self.public_ip,
+                self.info.public_ip,
                 self.config.port,
             )
             self._send(200, self._host_server())
@@ -168,14 +235,10 @@ class MatchmakerHandler(BaseHTTPRequestHandler):
             self._send(404, "Hittades inte")
 
 
-def start_matchmaker(config: Config, public_ip: str) -> ThreadingHTTPServer:
+def start_matchmaker(info: ServerInfo) -> ThreadingHTTPServer:
     """Startar HTTP-servern i bakgrunden och returnerar den."""
-    handler = type(
-        "ConfiguredHandler",
-        (MatchmakerHandler,),
-        {"config": config, "public_ip": public_ip},
-    )
-    httpd = ThreadingHTTPServer((config.listen_ip, config.port), handler)
+    handler = type("ConfiguredHandler", (MatchmakerHandler,), {"info": info})
+    httpd = ThreadingHTTPServer((info.config.listen_ip, info.config.port), handler)
     httpd.daemon_threads = True
     thread = threading.Thread(target=httpd.serve_forever, name="http", daemon=True)
     thread.start()
