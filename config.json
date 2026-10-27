@@ -1,0 +1,8 @@
+{
+    "server_name": "Emergency Meeting",
+    "listen_ip": "0.0.0.0",
+    "port": 22023,
+    "public_ip": "auto",
+    "welcome_message": "Hej {namn}! Emergency Meeting-servern fungerar. Att skapa spel kommer i nästa steg.",
+    "debug": false
+}
