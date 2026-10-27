@@ -20,6 +20,7 @@ from .game import Game  # noqa: E402
 from .hazel import HazelServer  # noqa: E402
 from .lobby import LobbyManager  # noqa: E402
 from .matchmaker import ServerInfo, start_matchmaker  # noqa: E402
+from .plugins import PluginManager  # noqa: E402
 from .region import region_info_json  # noqa: E402
 from .tunnel import Tunnel, find_cloudflared  # noqa: E402
 
@@ -68,7 +69,13 @@ async def run() -> None:
         log.error("Kör servern redan i ett annat fönster? Stäng det först.")
         return
 
-    game = Game(config, lobbies)
+    plugins = PluginManager()
+    if config.plugins:
+        plugins.load_all()
+    else:
+        log.info("Plugins är avstängda i config.json")
+
+    game = Game(config, lobbies, plugins)
     hazel = HazelServer(game.on_connect, game.on_message, game.on_disconnect, debug=config.debug)
 
     loop = asyncio.get_running_loop()
@@ -105,6 +112,7 @@ async def run() -> None:
             log.warning("Among Us på andra enheter kan inte ansluta utan HTTPS.")
             log.warning("Fixa det: dubbelklicka på hamta-cloudflared.command och starta om servern.")
 
+    plugins.fire("on_server_started")
     cleanup = asyncio.ensure_future(game.cleanup_loop())
     try:
         await hazel.maintenance_loop()

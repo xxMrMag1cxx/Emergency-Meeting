@@ -5,5 +5,6 @@
     "public_ip": "auto",
     "https_tunnel": true,
     "cloudflared_path": "auto",
+    "plugins": true,
     "debug": false
 }

@@ -17,7 +17,7 @@ med egna plugins.
       (klart i servern, behöver testas med två enheter)
 - [ ] **Steg 5:** Spela en hel runda och "Play Again"
       (grunden finns, behöver testas)
-- [ ] **Steg 6:** Eget pluginsystem
+- [x] **Steg 6:** Eget pluginsystem, se [plugins/README.md](plugins/README.md)
 
 ## Kom igång på Macen
 
@@ -108,6 +108,19 @@ Servern skriver ut vad som händer, till exempel:
 Inställningarna har samma namn som i spelets meny. Om spelet får en ny
 inställning som servern inte känner till står det "Övriga inställningar".
 
+## Plugins
+
+Mappen `plugins/` innehåller plugins som servern laddar när den startar.
+Ett plugin är en Python-fil som kan reagera på saker som händer (någon går
+med, skriver i chatten, ändrar inställningar...) och själv skicka
+chattmeddelanden.
+
+Pluginet `halsning.py` är påslaget och välkomnar nya spelare. Två exempel
+till är avstängda: byt namn på `_tarning.py` till `tarning.py` för att få
+chattkommandon som `/tärning`.
+
+Hur man skriver egna plugins står i [plugins/README.md](plugins/README.md).
+
 ## Serverns inställningar
 
 Serverns egna inställningar finns i `config.json`:
@@ -120,6 +133,7 @@ Serverns egna inställningar finns i `config.json`:
 | `public_ip`        | `auto` = Macens adress i hemnätverket. Kan sättas till en egen adress |
 | `https_tunnel`     | `true` = starta HTTPS-tunneln med cloudflared |
 | `cloudflared_path` | `auto` = leta efter cloudflared själv (projektmappen först) |
+| `plugins`          | `true` = ladda plugins från mappen `plugins/` |
 | `debug`            | `true` = visa varje paket i loggen, bra vid felsökning |
 
 ## Så här är koden uppbyggd
@@ -137,6 +151,8 @@ server/
   game.py        spellogiken: skapa spel, gå med, skicka vidare speldata
   lobby.py       en lobby: spelkod, spelare, värd och spelarinfo
   options.py     läser spelinställningarna och visar vad som ändrats
+  plugins.py     laddar plugins och anropar dem när något händer
+plugins/         plugins som servern laddar (se plugins/README.md)
   gamecode.py    spelkoder ("ABCDEF") och talen spelet skickar
   messages.py    läsa och skriva bytes
   protocol.py    alla siffror och namn som Among Us använder

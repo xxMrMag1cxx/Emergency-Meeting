@@ -60,6 +60,42 @@ class Player:
         else:
             writer.start_message(hs.platform).write_bytes(hs.platform_raw).end_message()
 
+    # --- För plugins -----------------------------------------------------
+
+    @property
+    def is_host(self) -> bool:
+        """True om spelaren är värd i sin lobby."""
+        return self.lobby.host_id == self.client_id
+
+    @property
+    def color(self) -> str:
+        """Färgen spelaren har valt, t.ex. "Red". Tom text om den inte är känd än."""
+        number = self.lobby.colors.get(self.client_id)
+        return protocol.COLORS.get(number, "") if number is not None else ""
+
+    @property
+    def platform(self) -> str:
+        """Vad spelaren spelar på, t.ex. "Steam (PC)" eller "iPhone/iPad"."""
+        hs = self.connection.handshake
+        return hs.platform_text if hs else "Okänd"
+
+    def send_chat(self, text: str) -> bool:
+        """
+        Skickar ett chattmeddelande som bara den här spelaren ser.
+        Det ser ut som att spelaren själv skrev det. Fungerar först när
+        spelarens gubbe finns i lobbyn (se on_player_spawned).
+        """
+        net_id = self.lobby.control_net_id(self.client_id)
+        if net_id is None:
+            log.debug("Kan inte skicka chatt till %s än, gubben finns inte", self.name)
+            return False
+        self.lobby.send_to(self.client_id, self.lobby.chat_payload(net_id, text, self.client_id))
+        return True
+
+    def disconnect(self, message: str = "Du kopplades bort av servern.") -> None:
+        """Kopplar bort spelaren och visar `message` i spelet."""
+        self.connection.disconnect(protocol.DisconnectReason.CUSTOM, message)
+
 
 @dataclass
 class PlayerInfoObject:
@@ -129,6 +165,67 @@ class Lobby:
     @property
     def host_name(self) -> str:
         return self.host.name if self.host else "Ingen värd"
+
+    # --- För plugins -----------------------------------------------------
+
+    @property
+    def player_list(self) -> List[Player]:
+        """Alla spelare i lobbyn."""
+        return list(self.players.values())
+
+    def find_player(self, name: str) -> Optional[Player]:
+        """Letar upp en spelare på namnet (stora/små bokstäver spelar ingen roll)."""
+        for player in self.players.values():
+            if player.name.lower() == name.lower():
+                return player
+        return None
+
+    @property
+    def settings(self) -> Dict[str, str]:
+        """Alla spelinställningar, t.ex. lobby.settings["Kill Cooldown"] -> "25 s"."""
+        return dict(self.options.settings)
+
+    @property
+    def map_name(self) -> str:
+        return self.options.map_name
+
+    @property
+    def is_started(self) -> bool:
+        return self.state == GameState.STARTED
+
+    def send_chat(self, text: str) -> bool:
+        """
+        Skickar ett chattmeddelande till alla i lobbyn. Det syns som att
+        värden skrev det.
+        """
+        net_id = self.control_net_id(self.host_id)
+        if net_id is None:
+            log.debug("Kan inte skicka chatt i %s än, värdens gubbe finns inte", self.code)
+            return False
+        self.send_to_all(self.chat_payload(net_id, text))
+        return True
+
+    def control_net_id(self, client_id: int) -> Optional[int]:
+        """Objektnumret för en spelares gubbe (behövs för att skicka chatt)."""
+        for net_id, owner in self.player_controls.items():
+            if owner == client_id:
+                return net_id
+        return None
+
+    def chat_payload(self, net_id: int, text: str, target_id: Optional[int] = None) -> bytes:
+        w = MessageWriter()
+        if target_id is None:
+            w.start_message(protocol.GAME_DATA).write_int32(self.code_int)
+        else:
+            w.start_message(protocol.GAME_DATA_TO).write_int32(self.code_int)
+            w.write_packed_int32(target_id)
+        w.start_message(protocol.GameDataTag.RPC)
+        w.write_packed_uint32(net_id).write_byte(protocol.RPC_SEND_CHAT).write_string(text)
+        w.end_message()
+        w.end_message()
+        return w.to_bytes()
+
+    # --- Vilka spelare ska få meddelanden --------------------------------
 
     def in_game(self, except_id: Optional[int] = None) -> List[Player]:
         return [

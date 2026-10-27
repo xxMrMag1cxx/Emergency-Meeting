@@ -44,6 +44,9 @@ class Config:
     # Var cloudflared finns. "auto" = leta själv (projektmappen först).
     cloudflared_path: str = "auto"
 
+    # Ladda plugins från mappen plugins/.
+    plugins: bool = True
+
     # Sätt till true för att se varenda paket i loggen (bra för felsökning).
     debug: bool = False
 
