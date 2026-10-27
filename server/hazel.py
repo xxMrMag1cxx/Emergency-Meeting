@@ -21,6 +21,7 @@ from collections import deque
 from typing import Callable, Deque, Dict, Optional, Set, Tuple
 
 from . import protocol
+from .blackbox import FlightRecorder
 from .handshake import Handshake, try_parse_handshake
 from .messages import MessageReader, MessageWriter
 
@@ -46,6 +47,10 @@ class Connection:
         # Fylls i av spellogiken: spelarens nummer och vilken lobby hen är i.
         self.client_id = 0
         self.player: Optional[object] = None
+
+        # Kommer ihåg de senaste meddelandena, om något går fel.
+        self.recorder = FlightRecorder()
+        self._unknown_kinds_logged: Set[int] = set()
 
         self._next_id = 1
         # Paketnummer vi redan har tagit emot (för att upptäcka dubbletter).
@@ -97,6 +102,7 @@ class Connection:
         self._next_id = (self._next_id + 1) & 0xFFFF
         packet = bytes([protocol.RELIABLE, packet_id >> 8, packet_id & 0xFF]) + payload
         self._pending[packet_id] = [packet, time.monotonic(), 0]
+        self.recorder.note("ut", payload)
         self.server.send_raw(packet, self.address)
 
     def send_unreliable(self, payload: bytes) -> None:
@@ -128,6 +134,7 @@ class Connection:
                 continue
             if tries >= MAX_RESENDS:
                 log.warning("%s svarar inte på paket %d, ger upp", self, packet_id)
+                self.recorder.note_text("!!", f"spelet svarade aldrig på vårt paket {packet_id}")
                 self._pending.pop(packet_id, None)
                 continue
             entry[1] = now
@@ -195,6 +202,7 @@ class HazelServer(asyncio.DatagramProtocol):
             is_new = connection.remember_id(packet_id)
             connection.send_ack(packet_id)
             if is_new:
+                connection.recorder.note("in", data[3:])
                 self._dispatch(connection, data[3:], reliable=True)
 
         elif kind == protocol.UNRELIABLE:
@@ -211,7 +219,38 @@ class HazelServer(asyncio.DatagramProtocol):
             connection.handle_ack(packet_id, recent)
 
         elif kind == protocol.DISCONNECT:
-            self.forget(connection, "spelaren lämnade")
+            why = self._disconnect_reason(data)
+            connection.recorder.note_text("in", f"Disconnect: {why}")
+            self.forget(connection, why)
+
+        elif kind not in connection._unknown_kinds_logged:
+            # Något vi inte förstår. Skriv ut det en gång, det kan förklara problem.
+            connection._unknown_kinds_logged.add(kind)
+            log.warning(
+                "%s skickade en pakettyp som servern inte känner till (0x%02x, %d bytes)",
+                connection,
+                kind,
+                len(data),
+            )
+            connection.recorder.note_text("in", f"okänd pakettyp 0x{kind:02x}: {data[:24].hex(' ')}")
+
+    @staticmethod
+    def _disconnect_reason(data: bytes) -> str:
+        """Läser varför spelet kopplade från, om det skickade med en anledning."""
+        if len(data) < 2:
+            return "spelaren lämnade"
+        try:
+            reader = MessageReader(data[1:])
+            if reader.read_byte() != 1:
+                return "spelaren lämnade (tvingad, utan anledning)"
+            inner = reader.read_message()
+            reason = inner.read_byte()
+            text = protocol.DISCONNECT_REASON_NAMES.get(reason, f"anledning {reason}")
+            if inner.remaining:
+                text += f": {inner.read_string()}"
+            return f"spelet kopplade från: {text}"
+        except ValueError:
+            return f"spelaren lämnade ({data[1:20].hex(' ')})"
 
     def _handle_hello(self, data: bytes, address: Address, connection: Optional[Connection]) -> None:
         if len(data) < 4:

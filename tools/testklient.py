@@ -124,7 +124,7 @@ class FakePlayer:
         self.send_raw(bytes([protocol.DISCONNECT]))
 
 
-def game_options(kill_cooldown=30.0, impostors=2):
+def game_options(kill_cooldown=30.0, impostors=2, discussion=15):
     """Spelinställningar i samma format som spelet (version 10, vanligt läge)."""
     w = MessageWriter()
     w.write_packed_uint32(0).write_byte(10)  # version 10
@@ -139,7 +139,7 @@ def game_options(kill_cooldown=30.0, impostors=2):
     w.write_int32(1)  # nödmöten
     w.write_byte(impostors)
     w.write_byte(1)  # kill-avstånd
-    w.write_int32(15).write_int32(120)  # diskussion, röstning
+    w.write_int32(discussion).write_int32(120)  # diskussion, röstning
     w.write_bool(False).write_byte(15)  # standard?, nödmötes-cooldown
     w.write_bool(True).write_bool(True).write_bool(False).write_byte(0)
     w.write_byte(1)  # lobbynivå

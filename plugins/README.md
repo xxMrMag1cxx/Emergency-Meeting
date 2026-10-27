@@ -90,7 +90,10 @@ Ett plugin lyssnar på en händelse genom att ha en funktion med samma namn.
 | `on_settings_changed(lobby, player, changes)` | Värden ändrade inställningar. `changes` är en lista med text, t.ex. `["Kill Cooldown: 30 s -> 25 s"]` |
 | `on_privacy_changed(lobby, is_public)` | Spelet blev offentligt (`True`) eller privat (`False`) |
 | `on_game_started(lobby)` | En runda startar |
-| `on_game_ended(lobby)` | En runda är slut |
+| `on_player_killed(lobby, killer, victim)` | Någon dödades under rundan |
+| `on_meeting_started(lobby, reporter, body)` | Ett möte börjar. `body` är den döda spelaren, eller `None` om någon tryckte på nödknappen |
+| `on_player_exiled(lobby, player)` | Röstningen är klar. `player` röstades ut, eller `None` om ingen röstades ut |
+| `on_game_ended(lobby, result)` | En runda är slut. `result` är en text, t.ex. `"Besättningen vann genom att göra alla uppdrag"` |
 
 ## Vad ett plugin kan använda
 
@@ -109,6 +112,7 @@ Ett plugin lyssnar på en händelse genom att ha en funktion med samma namn.
 | `lobby.send_chat("text")` | Skriver i chatten till alla (syns som att värden skrev) |
 | `lobby.bots` | Lista med alla bots i lobbyn |
 | `lobby.add_bot("Bot_1")` | Lägger till en bot. Ger tillbaka boten, eller `None` om det inte gick |
+| `lobby.add_bot("Bot_1", do_tasks=True)` | Samma, men boten gör uppdrag och röstar skip under rundan |
 | `lobby.remove_bot(bot)` | Tar bort en bot (den senaste om ingen anges) |
 
 **`player`** (en spelare):
@@ -130,5 +134,7 @@ eftersom Among Us inte har något sätt att visa meddelanden "från servern".
 
 En bot är en låtsasspelare som servern styr. För de andra ser den ut som en
 vanlig spelare: den går med, får namn och färg av värden och säger "redo"
-när en runda startar. Den kan inte röra sig eller göra uppdrag än, och den
-kan aldrig bli värd. Bots kan bara läggas till i lobbyn, inte under en runda.
+när en runda startar. Med `do_tasks=True` gör den också sina uppdrag (om den
+inte är impostor) och röstar skip på möten. Den står still, kan inte döda
+eller rapportera, och kan aldrig bli värd. Bots kan bara läggas till i
+lobbyn, inte under en runda.

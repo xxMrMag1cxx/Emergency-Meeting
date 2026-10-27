@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional
+from dataclasses import dataclass, field
+from typing import Dict, Iterable, List, Optional, Tuple
 
 from . import gamecode, protocol
 from .hazel import Connection
@@ -136,6 +136,18 @@ def default_player_info(player_id: int, client_id: int) -> bytes:
     return w.to_bytes()
 
 
+@dataclass
+class RoundInfo:
+    """Det som har hänt under en runda. Visas när rundan är slut."""
+
+    roles: Dict[int, int] = field(default_factory=dict)  # spelar-id -> roll
+    deaths: List[Tuple[str, str]] = field(default_factory=list)  # (offer, mördare)
+    exiled: List[str] = field(default_factory=list)
+    meetings: int = 0
+    tasks_done: Dict[int, int] = field(default_factory=dict)
+    started_at: float = field(default_factory=time.monotonic)
+
+
 # --- Lobbyn --------------------------------------------------------------
 
 class Lobby:
@@ -162,6 +174,11 @@ class Lobby:
         self.player_controls: Dict[int, int] = {}
         # Spelar-id -> färgnummer, så att vi bara loggar när färgen ändras.
         self.colors: Dict[int, int] = {}
+        # Gubbens objektnummer -> spelarnummer i spelet (0, 1, 2 ...).
+        self.control_player_ids: Dict[int, int] = {}
+        self.meeting_hud_net_id: Optional[int] = None
+        # Vad som händer under rundan (roller, dödsfall, möten ...).
+        self.round = RoundInfo()
 
     def __str__(self) -> str:
         return self.code
@@ -206,14 +223,15 @@ class Lobby:
         """Alla bots i lobbyn, i den ordning de lades till."""
         return [p for p in self.players.values() if p.is_bot]
 
-    def add_bot(self, name: str) -> Optional[Player]:
+    def add_bot(self, name: str, do_tasks: bool = False) -> Optional[Player]:
         """
         Lägger till en bot med namnet `name`. Returnerar boten, eller None
         om det inte gick (lobbyn är full, en runda pågår, eller ingen värd).
+        Med do_tasks=True gör boten sina uppdrag och röstar skip under rundan.
         """
         if self.server is None:
             return None
-        return self.server.add_bot(self, name)
+        return self.server.add_bot(self, name, do_tasks)
 
     def remove_bot(self, bot: Optional[Player] = None) -> bool:
         """Tar bort en bot (den senast tillagda om ingen anges). False om det inte fanns någon."""
@@ -236,6 +254,21 @@ class Lobby:
             return False
         self.send_to_all(self.chat_payload(net_id, text))
         return True
+
+    def player_by_control(self, net_id: int) -> Optional["Player"]:
+        """Spelaren som äger gubben med objektnummer `net_id`."""
+        owner = self.player_controls.get(net_id)
+        return self.players.get(owner) if owner is not None else None
+
+    def player_by_player_id(self, player_id: int) -> Optional["Player"]:
+        """Spelaren med spelarnummer `player_id` (det nummer spelet använder i röstning m.m.)."""
+        for obj in self.server_objects.values():
+            if obj.player_id == player_id:
+                return self.players.get(obj.client_id)
+        for net_id, pid in self.control_player_ids.items():
+            if pid == player_id:
+                return self.player_by_control(net_id)
+        return None
 
     def control_net_id(self, client_id: int) -> Optional[int]:
         """Objektnumret för en spelares gubbe (behövs för att skicka chatt)."""

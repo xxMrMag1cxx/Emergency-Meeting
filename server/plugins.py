@@ -53,6 +53,9 @@ EVENTS = (
     "on_settings_changed",
     "on_privacy_changed",
     "on_game_started",
+    "on_player_killed",
+    "on_meeting_started",
+    "on_player_exiled",
     "on_game_ended",
 )
 

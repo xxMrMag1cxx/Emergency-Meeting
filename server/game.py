@@ -18,13 +18,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Callable, List, Optional
 
 from . import protocol
 from .config import Config
 from .bots import BotConnection
 from .hazel import Connection
-from .lobby import GameState, Limbo, Lobby, LobbyManager, Player
+from .lobby import GameState, Limbo, Lobby, LobbyManager, Player, RoundInfo
 from .messages import MessageReader, MessageWriter
 from .options import GameOptions, differences, read_options
 from .plugins import PluginManager
@@ -66,9 +67,17 @@ class Game:
 
     def on_disconnect(self, connection: Connection, why: str) -> None:
         player = self._player(connection)
+        lobby_code = player.lobby.code if player is not None else None
         if player is not None:
             self.remove_player(player.lobby, player.client_id, Reason.EXIT_GAME)
         log.info("%s kopplade från (%s)", connection.name, why)
+
+        # Spara den svarta lådan om spelaren var med i ett spel.
+        recorder = getattr(connection, "recorder", None)
+        if lobby_code is not None and recorder is not None:
+            path = recorder.save(connection.name, why, lobby_code)
+            if path is not None:
+                log.info("Sparade vad som hände precis innan i loggar/%s", path.name)
 
     # =====================================================================
     # Meddelanden
@@ -240,7 +249,13 @@ class Game:
         if lobby is None:
             return
         lobby.state = GameState.STARTED
-        log.info("%s: spelet startar! (%d spelare)", lobby.code, len(lobby.players))
+        lobby.round = RoundInfo()
+        log.info(
+            "%s: spelet startar! (%d spelare, %s)",
+            lobby.code,
+            len(lobby.players),
+            lobby.options.map_name,
+        )
         lobby.send_to_all(self._forward(message))
         self.plugins.fire("on_game_started", lobby)
 
@@ -248,15 +263,41 @@ class Game:
         player, lobby = self._host_check(connection, message)
         if lobby is None:
             return
+        try:
+            reason = message.read_byte()
+        except ValueError:
+            reason = -1
+        result = protocol.GAME_OVER_REASONS.get(reason, f"rundan är slut (anledning {reason})")
         lobby.state = GameState.ENDED
-        log.info("%s: rundan är slut", lobby.code)
         lobby.send_to_all(self._forward(message))
+        self._log_round_summary(lobby, result)
         for p in lobby.players.values():
             p.limbo = Limbo.PRE_SPAWN
-        # Spelarinfo skapas på nytt när alla kommer tillbaka till lobbyn.
+        # Spelarinfo och gubbar skapas på nytt när alla kommer tillbaka till lobbyn.
         lobby.server_objects.clear()
         lobby.player_controls.clear()
-        self.plugins.fire("on_game_ended", lobby)
+        lobby.control_player_ids.clear()
+        lobby.meeting_hud_net_id = None
+        self.plugins.fire("on_game_ended", lobby, result)
+
+    def _log_round_summary(self, lobby: Lobby, result: str) -> None:
+        r = lobby.round
+        minutes, seconds = divmod(int(time.monotonic() - r.started_at), 60)
+        log.info("%s: RUNDAN ÄR SLUT. %s (%d min %d s, %d möten)", lobby.code, result, minutes, seconds, r.meetings)
+        impostors = [
+            lobby.players[cid].name
+            for cid, role in r.roles.items()
+            if role in protocol.IMPOSTOR_ROLES and cid in lobby.players
+        ]
+        if impostors:
+            log.info("%s:   Impostors: %s", lobby.code, ", ".join(impostors))
+        for cid, role in r.roles.items():
+            if cid in lobby.players and role not in (0, 1):
+                log.info("%s:   %s var %s", lobby.code, lobby.players[cid].name, protocol.ROLES.get(role, role))
+        for victim, killer in r.deaths:
+            log.info("%s:   %s dödades av %s", lobby.code, victim, killer)
+        for name in r.exiled:
+            log.info("%s:   %s röstades ut", lobby.code, name)
 
     def handle_alter_game(self, connection: Connection, message: MessageReader, reliable: bool) -> None:
         player, lobby = self._host_check(connection, message)
@@ -416,9 +457,17 @@ class Game:
         data = part.read_message()
 
         if spawn_type == protocol.SPAWN_PLAYER_CONTROL:
+            # Värden skickar ALLA gubbar igen till varje ny spelare som går med.
+            # Bara första gången är gubben ny; annars blir det dubbla händelser.
+            is_new = net_id not in lobby.player_controls
             lobby.player_controls[net_id] = owner
+            try:
+                data.read_bool()  # "är ny"
+                lobby.control_player_ids[net_id] = data.read_byte()
+            except ValueError:
+                pass
             spawned = lobby.players.get(owner)
-            if spawned is not None:
+            if spawned is not None and is_new:
                 # Vänta tills alla har fått veta om gubben, annars hamnar t.ex.
                 # ett välkomstmeddelande från ett plugin ingenstans.
                 def after_spawn() -> None:
@@ -427,6 +476,9 @@ class Game:
                     self.plugins.fire("on_player_spawned", lobby, spawned)
 
                 self._after_forward.append(after_spawn)
+
+        elif spawn_type == protocol.SPAWN_MEETING_HUD:
+            lobby.meeting_hud_net_id = net_id
 
         elif spawn_type in (protocol.SPAWN_NORMAL_GAME_MANAGER, protocol.SPAWN_HIDE_AND_SEEK_MANAGER):
             lobby.game_manager_net_id = net_id
@@ -452,30 +504,78 @@ class Game:
     def _inspect_rpc(self, lobby: Lobby, player: Player, part: MessageReader) -> Optional[bool]:
         net_id = part.read_packed_uint32()
         call = part.read_byte()
+        later = self._after_forward.append  # körs när meddelandet har skickats vidare
+        fire = self.plugins.fire
 
         if call == protocol.RPC_SEND_CHAT:
             text = part.read_string()
-            if self.plugins.fire("on_chat", lobby, player, text) is False:
+            if fire("on_chat", lobby, player, text) is False:
                 log.info("%s chatt  %s: %s  (stoppat av ett plugin)", lobby.code, player.name, text)
                 return False
             log.info("%s chatt  %s: %s", lobby.code, player.name, text)
 
         elif call == protocol.RPC_SET_COLOR:
-            part.read_uint32()
+            info_net_id = part.read_uint32()
             color = part.read_byte()
-            owner = lobby.player_controls.get(net_id)
+            # Färgen gäller spelarinfon med det numret (säkrast), annars gubbens ägare.
+            info = lobby.server_objects.get(info_net_id)
+            owner = info.client_id if info is not None else lobby.player_controls.get(net_id)
             target = lobby.players.get(owner) if owner is not None else None
             if target is not None and lobby.colors.get(target.client_id) != color:
                 lobby.colors[target.client_id] = color
-                log.info(
-                    "%s: %s har färgen %s",
-                    lobby.code,
-                    target.name,
-                    protocol.COLORS.get(color, f"nr {color}"),
-                )
-                self._after_forward.append(
-                    lambda: self.plugins.fire("on_color_changed", lobby, target, target.color)
-                )
+                log.info("%s: %s har färgen %s", lobby.code, target.name, protocol.COLORS.get(color, f"nr {color}"))
+                later(lambda: fire("on_color_changed", lobby, target, target.color))
+
+        elif call == protocol.RPC_SET_ROLE:
+            target = lobby.player_by_control(net_id)
+            role = part.read_uint16()
+            if target is not None:
+                lobby.round.roles[target.client_id] = role
+
+        elif call == protocol.RPC_MURDER_PLAYER:
+            killer = lobby.player_by_control(net_id)
+            victim = lobby.player_by_control(part.read_packed_uint32())
+            result = part.read_int32()
+            if result & protocol.MURDER_SUCCEEDED and victim is not None:
+                lobby.round.deaths.append((victim.name, killer.name if killer else "?"))
+                # Vem som dödade skrivs inte ut nu, då skulle loggen avslöja impostorn.
+                log.info("%s: %s har dödats! (%d döda)", lobby.code, victim.name, len(lobby.round.deaths))
+                later(lambda: fire("on_player_killed", lobby, killer, victim))
+
+        elif call == protocol.RPC_START_MEETING:
+            reporter = lobby.player_by_control(net_id)
+            body_id = part.read_byte()
+            body = lobby.player_by_player_id(body_id) if body_id != protocol.NO_PLAYER else None
+            who = reporter.name if reporter else "Någon"
+            lobby.round.meetings += 1
+            if body is None:
+                log.info("%s: MÖTE! %s tryckte på nödknappen", lobby.code, who)
+            else:
+                log.info("%s: MÖTE! %s hittade %s", lobby.code, who, body.name)
+            later(lambda: fire("on_meeting_started", lobby, reporter, body))
+
+        elif call == protocol.RPC_CAST_VOTE:
+            voter = lobby.player_by_player_id(part.read_byte())
+            part.read_byte()  # vem rösten gäller, avslöjas inte i loggen
+            if voter is not None:
+                log.info("%s: %s har röstat", lobby.code, voter.name)
+
+        elif call == protocol.RPC_VOTING_COMPLETE:
+            for _ in range(part.read_packed_uint32()):
+                part.read_message()  # hur varje spelare röstade
+            exiled_id = part.read_byte()
+            tie = part.read_bool()
+            exiled = lobby.player_by_player_id(exiled_id) if exiled_id != protocol.NO_PLAYER else None
+            if exiled is not None:
+                lobby.round.exiled.append(exiled.name)
+                log.info("%s: %s röstades ut", lobby.code, exiled.name)
+            else:
+                log.info("%s: ingen röstades ut%s", lobby.code, " (oavgjort)" if tie else "")
+            later(lambda: fire("on_player_exiled", lobby, exiled))
+
+        elif call == protocol.RPC_COMPLETE_TASK:
+            if player is not None:
+                lobby.round.tasks_done[player.client_id] = lobby.round.tasks_done.get(player.client_id, 0) + 1
         return None
 
     def handle_packed_game_data_to(self, connection: Connection, message: MessageReader, reliable: bool) -> None:
@@ -552,7 +652,7 @@ class Game:
     # Bots
     # =====================================================================
 
-    def add_bot(self, lobby: Lobby, name: str) -> Optional[Player]:
+    def add_bot(self, lobby: Lobby, name: str, do_tasks: bool = False) -> Optional[Player]:
         host = lobby.host
         if host is None or lobby.state != GameState.NOT_STARTED:
             return None
@@ -564,7 +664,7 @@ class Game:
         version = host.connection.handshake.game_version if host.connection.handshake else 0
 
         self._next_client_id += 1
-        bot = BotConnection(self, self._next_client_id, name, version, color)
+        bot = BotConnection(self, self._next_client_id, name, version, color, do_tasks)
         bot.join(lobby.code_int)
         player = self._player(bot)  # type: ignore[arg-type]
         if player is None:

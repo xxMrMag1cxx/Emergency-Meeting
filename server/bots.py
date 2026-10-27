@@ -10,14 +10,20 @@ när någon går med:
   3. ber värden om ett namn och en färg (CheckName, CheckColor)
   4. säger "redo" när en runda startar, och går med igen när rundan är slut
 
-Boten kan inte röra sig eller göra uppdrag än. Plugins skapar bots med
-lobby.add_bot("Bot_1") och tar bort dem med lobby.remove_bot(bot).
+Under en runda kan boten också (om do_tasks är på):
+  - göra sina uppdrag, ett i taget med en stund emellan (inte som impostor)
+  - rösta "skip" på möten
+
+Boten står still och kan inte döda eller rapportera. Plugins skapar bots
+med lobby.add_bot("Bot_1") och tar bort dem med lobby.remove_bot(bot).
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import random
+import re
 from typing import TYPE_CHECKING, Optional
 
 from . import protocol
@@ -29,8 +35,11 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("bot")
 
-RPC_CHECK_NAME = 5
-RPC_CHECK_COLOR = 7
+RPC_CHECK_NAME = protocol.RPC_CHECK_NAME
+RPC_CHECK_COLOR = protocol.RPC_CHECK_COLOR
+
+# Hur lång tid (sekunder) boten tar på sig för varje uppdrag.
+TASK_TIME = (12.0, 25.0)
 
 
 class BotConnection:
@@ -38,10 +47,19 @@ class BotConnection:
 
     is_bot = True
 
-    def __init__(self, game: "Game", client_id: int, name: str, game_version: int, color: int):
+    def __init__(
+        self,
+        game: "Game",
+        client_id: int,
+        name: str,
+        game_version: int,
+        color: int,
+        do_tasks: bool = False,
+    ):
         self.game = game
         self.client_id = client_id
         self.color = color
+        self.do_tasks = do_tasks
         self.handshake = Handshake(
             hazel_version=1,
             game_version=game_version,
@@ -55,6 +73,13 @@ class BotConnection:
         self.player: Optional[object] = None
         self.connected = True
         self.control_net_id: Optional[int] = None
+
+        # Det boten vet om den pågående rundan.
+        self.round = 0  # ökar varje runda, så att gamla timers inte gör något
+        self.role = 0
+        self.alive = True
+        self.task_count = 0
+        self.tasks_done = 0
 
     @property
     def name(self) -> str:
@@ -75,9 +100,50 @@ class BotConnection:
             if message.tag == protocol.JOINED_GAME:
                 loop.call_soon(self.load_lobby)
             elif message.tag == protocol.START_GAME:
+                self.round += 1
+                self.role, self.alive, self.task_count, self.tasks_done = 0, True, 0, 0
                 loop.call_later(0.5, self.send_ready)
             elif message.tag == protocol.END_GAME:
+                self.round += 1
                 loop.call_later(1.0, self.join_again)
+            elif message.tag in (protocol.GAME_DATA, protocol.GAME_DATA_TO):
+                try:
+                    self._watch_game_data(message)
+                except ValueError:
+                    pass
+
+    def _watch_game_data(self, message: MessageReader) -> None:
+        """Tittar efter saker som rör boten: roll, uppdrag, död och möten."""
+        reader = MessageReader(message.data)
+        reader.read_int32()
+        if message.tag == protocol.GAME_DATA_TO:
+            reader.read_packed_int32()
+        my_info = self._my_info()
+        for part in reader.messages():
+            if part.tag != protocol.GameDataTag.RPC:
+                continue
+            net_id = part.read_packed_uint32()
+            call = part.read_byte()
+            if call == protocol.RPC_SET_ROLE and net_id == self.control_net_id:
+                self.role = part.read_uint16()
+                log.debug("%s fick rollen %s", self.name, protocol.ROLES.get(self.role, self.role))
+            elif call == protocol.RPC_SET_TASKS and my_info is not None and net_id == my_info.net_id:
+                self.task_count = part.read_packed_uint32()
+                self.tasks_done = 0
+                self._plan_next_task()
+            elif call == protocol.RPC_MURDER_PLAYER:
+                target = part.read_packed_uint32()
+                result = part.read_int32()
+                if target == self.control_net_id and result & protocol.MURDER_SUCCEEDED:
+                    self.alive = False
+            elif call == protocol.RPC_EXILED and net_id == self.control_net_id:
+                self.alive = False
+            elif call == protocol.RPC_START_MEETING and self.alive and self.do_tasks:
+                self._plan_vote()
+
+    def _my_info(self):
+        lobby = getattr(self.player, "lobby", None)
+        return lobby.find_player_info(self.client_id) if lobby is not None else None
 
     def send_unreliable(self, payload: bytes) -> None:
         pass  # rörelser och liknande, boten bryr sig inte
@@ -134,7 +200,62 @@ class BotConnection:
         color = MessageWriter().start_message(protocol.GameDataTag.RPC)
         color.write_packed_uint32(net_id).write_byte(RPC_CHECK_COLOR).write_byte(self.color).end_message()
         self._game_data(name.to_bytes(), color.to_bytes(), to=lobby.host_id)
+        level = MessageWriter().start_message(protocol.GameDataTag.RPC)
+        level.write_packed_uint32(net_id).write_byte(protocol.RPC_SET_LEVEL).write_packed_uint32(0).end_message()
+        self._game_data(level.to_bytes())
         log.debug("%s bad värden om namn och färg", self.name)
+
+    # --- Spela en runda ---------------------------------------------------
+
+    def _later(self, seconds: float, action) -> None:
+        """Kör `action` om en stund, men bara om det fortfarande är samma runda."""
+        current = self.round
+
+        def run() -> None:
+            if self.connected and self.round == current:
+                action()
+
+        asyncio.get_event_loop().call_later(seconds, run)
+
+    def _plan_next_task(self) -> None:
+        if not self.do_tasks or self.role in protocol.IMPOSTOR_ROLES:
+            return
+        if self.tasks_done >= self.task_count:
+            return
+        self._later(random.uniform(*TASK_TIME), self.complete_task)
+
+    def complete_task(self) -> None:
+        if self.control_net_id is None or self.role in protocol.IMPOSTOR_ROLES:
+            return
+        task_id = self.tasks_done
+        part = MessageWriter().start_message(protocol.GameDataTag.RPC)
+        part.write_packed_uint32(self.control_net_id).write_byte(protocol.RPC_COMPLETE_TASK)
+        part.write_packed_uint32(task_id).end_message()
+        self._game_data(part.to_bytes())
+        self.tasks_done += 1
+        log.info("%s gjorde ett uppdrag (%d/%d)", self.name, self.tasks_done, self.task_count)
+        self._plan_next_task()
+
+    def _plan_vote(self) -> None:
+        """Rösta skip en stund efter att diskussionstiden är slut."""
+        lobby = getattr(self.player, "lobby", None)
+        discussion = 15.0
+        if lobby is not None:
+            match = re.match(r"(\d+)", lobby.settings.get("Discussion Time", ""))
+            if match:
+                discussion = float(match.group(1))
+        self._later(discussion + random.uniform(2.0, 6.0), self.vote_skip)
+
+    def vote_skip(self) -> None:
+        lobby = getattr(self.player, "lobby", None)
+        info = self._my_info()
+        if lobby is None or info is None or lobby.meeting_hud_net_id is None or not self.alive:
+            return
+        part = MessageWriter().start_message(protocol.GameDataTag.RPC)
+        part.write_packed_uint32(lobby.meeting_hud_net_id).write_byte(protocol.RPC_CAST_VOTE)
+        part.write_byte(info.player_id).write_byte(protocol.VOTE_SKIP).end_message()
+        self._game_data(part.to_bytes(), to=lobby.host_id)
+        log.debug("%s röstade skip", self.name)
 
     def send_ready(self) -> None:
         part = MessageWriter().start_message(protocol.GameDataTag.READY)

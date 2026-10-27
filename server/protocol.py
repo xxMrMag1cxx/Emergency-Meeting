@@ -99,7 +99,45 @@ class DisconnectReason:
     KICKED = 7
     CUSTOM = 8  # visar vår egen text i spelet!
     INVALID_NAME = 9
+    HACKING = 10
+    NOT_AUTHORIZED = 11
+    ERROR = 17
+    CLIENT_TIMEOUT = 215
     SERVER_ERROR = 113
+
+
+DISCONNECT_REASON_NAMES = {
+    0: "lämnade spelet",
+    1: "spelet var fullt",
+    2: "spelet hade redan startat",
+    3: "spelet fanns inte",
+    5: "fel spelversion",
+    6: "bannad",
+    7: "utsparkad",
+    8: "eget meddelande",
+    9: "ogiltigt namn",
+    10: "fusk (hacking)",
+    11: "inte behörig",
+    12: "för många anslutningar",
+    16: "spelet stängdes",
+    17: "fel i spelet (Error)",
+    18: "fel spel",
+    19: "servern bad om det",
+    20: "servern full",
+    21: "olika spelversioner",
+    100: "spelaren saknas",
+    101: "nonce-fel",
+    102: "anslutningstoken-fel",
+    113: "serverfel",
+    207: "appen hamnade i bakgrunden",
+    208: "lämnade med flit",
+    209: "appen tappade fokus",
+    210: "ny anslutning",
+    214: "servern hittades inte",
+    215: "ingen kontakt (timeout)",
+    216: "auth-fel",
+    255: "okänd anledning",
+}
 
 
 # --- Plattformar --------------------------------------------------------
@@ -165,14 +203,52 @@ FIRST_SERVER_NET_ID = 100000
 SERVER_OWNED = -4
 
 # Typnummer för objekt som kan skapas (spawnas).
+SPAWN_MEETING_HUD = 1  # röstningsskärmen under ett möte
 SPAWN_PLAYER_CONTROL = 4  # en spelargubbe
 SPAWN_HIDE_AND_SEEK_MANAGER = 9
 SPAWN_NORMAL_GAME_MANAGER = 10  # håller bl.a. spelinställningarna
 SPAWN_PLAYER_INFO = 11
 
 # Några "gör något"-meddelanden (RPC) som servern tittar på.
+RPC_COMPLETE_TASK = 1
+RPC_EXILED = 4
+RPC_CHECK_NAME = 5
+RPC_CHECK_COLOR = 7
 RPC_SET_COLOR = 8
+RPC_MURDER_PLAYER = 12
 RPC_SEND_CHAT = 13
+RPC_START_MEETING = 14
+RPC_VOTING_COMPLETE = 23
+RPC_CAST_VOTE = 24
+RPC_SET_TASKS = 29
+RPC_SET_LEVEL = 38
+RPC_SET_ROLE = 44
+
+MURDER_SUCCEEDED = 1
+
+# Specialvärden i röstningen
+VOTE_SKIP = 253
+NO_PLAYER = 255  # t.ex. "nödknappen" i stället för en död kropp
+
+ROLES = {
+    0: "Crewmate", 1: "Impostor", 2: "Scientist", 3: "Engineer",
+    4: "Guardian Angel", 5: "Shapeshifter", 6: "Crewmate (spöke)",
+    7: "Impostor (spöke)", 8: "Noisemaker", 9: "Phantom", 10: "Tracker",
+    12: "Detective", 18: "Viper", 19: "Judge", 21: "Spirit Guide",
+}
+IMPOSTOR_ROLES = {1, 5, 7, 9, 18}
+
+GAME_OVER_REASONS = {
+    0: "Besättningen vann genom att rösta ut impostorerna",
+    1: "Besättningen vann genom att göra alla uppdrag",
+    2: "Impostorerna vann genom röstning",
+    3: "Impostorerna vann genom att döda",
+    4: "Impostorerna vann genom sabotage",
+    5: "Besättningen vann (en impostor lämnade)",
+    6: "Impostorerna vann (en crewmate lämnade)",
+    7: "Hide n Seek: besättningen överlevde tiden ut",
+    8: "Hide n Seek: impostorn fångade alla",
+}
 
 COLORS = {
     0: "Red", 1: "Blue", 2: "Green", 3: "Pink", 4: "Orange", 5: "Yellow",

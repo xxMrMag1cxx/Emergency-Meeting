@@ -15,8 +15,9 @@ med egna plugins.
 - [x] **Steg 3b:** Loggen visar alla ändringar av spelinställningar
 - [ ] **Steg 4:** Gå med i ett spel med spelkoden, flera spelare i samma lobby
       (klart i servern, behöver testas med två enheter)
-- [ ] **Steg 5:** Spela en hel runda och "Play Again"
-      (grunden finns, behöver testas)
+- [x] **Steg 5:** Spela en hel runda och "Play Again". Loggen visar möten,
+      dödsfall och röstning, och en sammanfattning när rundan är slut
+      (behöver testas med riktiga spelet)
 - [x] **Steg 6:** Eget pluginsystem, se [plugins/README.md](plugins/README.md)
 
 ## Kom igång på Macen
@@ -103,7 +104,18 @@ Servern skriver ut vad som händer, till exempel:
 15:03:05  spel    NUORZH: Blobi ändrade Kill Cooldown: 30 s -> 25 s
 15:03:30  spel    Kalle gick med i NUORZH som spelare (2/10 spelare)
 15:03:41  spel    NUORZH chatt  Kalle: hej!
+15:05:02  spel    NUORZH: spelet startar! (4 spelare, The Skeld)
+15:06:10  spel    NUORZH: Bot_2 har dödats! (1 döda)
+15:06:30  spel    NUORZH: MÖTE! Blobi hittade Bot_2
+15:07:05  spel    NUORZH: Bot_1 röstades ut
+15:07:20  spel    NUORZH: RUNDAN ÄR SLUT. Besättningen vann genom att rösta ut impostorerna
+15:07:20  spel    NUORZH:   Impostors: Bot_1
+15:07:20  spel    NUORZH:   Bot_2 dödades av Bot_1
 ```
+
+Under rundan skriver loggen inte ut vem som dödade någon eller vilka som är
+impostors, så att den som tittar på serverfönstret inte får veta det. Det
+kommer först i sammanfattningen när rundan är slut.
 
 Inställningarna har samma namn som i spelets meny. Om spelet får en ny
 inställning som servern inte känner till står det "Övriga inställningar".
@@ -154,6 +166,7 @@ server/
   options.py     läser spelinställningarna och visar vad som ändrats
   plugins.py     laddar plugins och anropar dem när något händer
   bots.py        bots: låtsasspelare som servern styr
+  blackbox.py    "svart låda": sparar vad som hände om någon kopplas från
 plugins/         plugins som servern laddar (se plugins/README.md)
   gamecode.py    spelkoder ("ABCDEF") och talen spelet skickar
   messages.py    läsa och skriva bytes
@@ -205,6 +218,10 @@ som håller koll på vem som är med i vilket spel.
 - **"Address already in use"**: servern körs redan i ett annat fönster. Stäng det.
 - **Spelet säger fel version**: skriv ner vilken version spelet har (står uppe
   till vänster i huvudmenyn) och vad loggen visar.
+- **Någon kopplas från oväntat**: varje gång en spelare i ett spel kopplas
+  från sparas en rapport i mappen `loggar/` med de senaste meddelandena
+  mellan spelet och servern. Skicka den filen, så går det att se vad som
+  hände precis innan.
 - Sätt `"debug": true` i `config.json` för att se allt som skickas.
 
 ## Tack

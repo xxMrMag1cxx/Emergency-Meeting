@@ -6,3 +6,6 @@ __pycache__/
 regionInfo.json
 cloudflared
 cloudflared.tgz
+
+# Rapporter från servern
+loggar/
