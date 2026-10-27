@@ -12,12 +12,13 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional
 
 from . import gamecode, protocol
 from .hazel import Connection
-from .messages import MessageReader, MessageWriter
+from .messages import MessageWriter
+from .options import GameOptions
 
 log = logging.getLogger("lobby")
 
@@ -34,53 +35,6 @@ class Limbo:
     PRE_SPAWN = "ansluter"  # har inte kommit in i lobbyn än
     IN_GAME = "i spelet"  # är inne och ska få alla meddelanden
     WAITING_FOR_HOST = "väntar på värden"  # efter en runda, väntar på att värden kommer tillbaka
-
-
-# --- Spelinställningar ---------------------------------------------------
-
-@dataclass
-class GameOptions:
-    raw: bytes = b""  # inställningarna precis som spelet skickade dem
-    version: int = 0
-    mode: int = 1
-    max_players: int = 15
-    keywords: int = 0  # språk
-    map_id: int = 0
-    num_impostors: int = 1
-
-    @property
-    def map_name(self) -> str:
-        return protocol.MAPS.get(self.map_id, f"karta {self.map_id}")
-
-    @property
-    def mode_name(self) -> str:
-        return protocol.GAME_MODES.get(self.mode, f"läge {self.mode}")
-
-
-def parse_game_options(reader: MessageReader) -> GameOptions:
-    """
-    Läser spelinställningarna ur ett HostGame-meddelande.
-    Vi plockar bara ut det vi behöver: max antal spelare, karta och impostors.
-    """
-    reader.read_packed_uint32()  # en längd som spelet inte använder
-    start = reader.pos
-    version = reader.read_byte()
-    inner = reader.read_message()
-    options = GameOptions(raw=reader.data[start : reader.pos], version=version)
-
-    options.mode = inner.read_byte()
-    if version >= 8:
-        inner.read_byte()  # specialläge
-        inner.read_byte()  # regelförval
-    options.max_players = inner.read_byte()
-    options.keywords = inner.read_uint32()
-    options.map_id = inner.read_byte()
-    if options.mode in (1, 3):  # vanligt läge
-        inner.read_bytes(4 * 4)  # hastighet, ljus x2, kill cooldown
-        inner.read_bytes(3)  # antal uppdrag (vanliga, långa, korta)
-        inner.read_int32()  # antal möten
-        options.num_impostors = inner.read_byte()
-    return options
 
 
 # --- Spelare och objekt --------------------------------------------------
@@ -155,6 +109,15 @@ class Lobby:
         self.created_at = time.monotonic()
         self.server_objects: Dict[int, PlayerInfoObject] = {}
         self._next_net_id = protocol.FIRST_SERVER_NET_ID
+
+        # Värdens "GameManager"-objekt, där inställningarna bor.
+        self.game_manager_net_id: Optional[int] = None
+        self.options_part = 4  # vilken del av GameManager som är inställningarna
+
+        # Spelargubbarnas objektnummer -> vems gubbe det är (spelar-id).
+        self.player_controls: Dict[int, int] = {}
+        # Spelar-id -> färgnummer, så att vi bara loggar när färgen ändras.
+        self.colors: Dict[int, int] = {}
 
     def __str__(self) -> str:
         return self.code

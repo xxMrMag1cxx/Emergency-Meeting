@@ -12,8 +12,9 @@ med egna plugins.
       från andra enheter
 - [x] **Steg 3:** Skapa spel, få en spelkod och komma in i lobbyn
       (behöver testas med riktiga spelet)
+- [x] **Steg 3b:** Loggen visar alla ändringar av spelinställningar
 - [ ] **Steg 4:** Gå med i ett spel med spelkoden, flera spelare i samma lobby
-      (grunden finns, behöver testas med två enheter)
+      (klart i servern, behöver testas med två enheter)
 - [ ] **Steg 5:** Spela en hel runda och "Play Again"
       (grunden finns, behöver testas)
 - [ ] **Steg 6:** Eget pluginsystem
@@ -91,9 +92,25 @@ genom att lägga till servern på samma sätt och skriva in spelkoden.
 Eftersom adressen byts vid varje omstart behöver man göra om steg 1–2 efter
 att servern har startats om.
 
-## Inställningar
+## Vad loggen visar
 
-Inställningarna finns i `config.json`:
+Servern skriver ut vad som händer, till exempel:
+
+```
+15:01:12  spel    Blobi skapade spelet NUORZH (The Skeld, Vanligt, max 10 spelare, 1 impostor)
+15:01:12  spel    Blobi gick med i NUORZH som värd (1/10 spelare)
+15:02:40  spel    NUORZH: Blobi har färgen Lime
+15:03:05  spel    NUORZH: Blobi ändrade Kill Cooldown: 30 s -> 25 s
+15:03:30  spel    Kalle gick med i NUORZH som spelare (2/10 spelare)
+15:03:41  spel    NUORZH chatt  Kalle: hej!
+```
+
+Inställningarna har samma namn som i spelets meny. Om spelet får en ny
+inställning som servern inte känner till står det "Övriga inställningar".
+
+## Serverns inställningar
+
+Serverns egna inställningar finns i `config.json`:
 
 | Inställning        | Vad den gör |
 |--------------------|-------------|
@@ -119,11 +136,13 @@ server/
   handshake.py   läser spelets första paket (namn, version, plattform)
   game.py        spellogiken: skapa spel, gå med, skicka vidare speldata
   lobby.py       en lobby: spelkod, spelare, värd och spelarinfo
+  options.py     läser spelinställningarna och visar vad som ändrats
   gamecode.py    spelkoder ("ABCDEF") och talen spelet skickar
   messages.py    läsa och skriva bytes
   protocol.py    alla siffror och namn som Among Us använder
 tools/
-  testklient.py  två låtsas-Among Us som testar servern
+  testklient.py  två låtsas-Among Us som testar servern (skapa, gå med,
+                 byta färg, ändra inställningar, chatta, lämna)
 start.command               starta servern
 testa.command               kör testklienten
 hamta-cloudflared.command   hämtar cloudflared

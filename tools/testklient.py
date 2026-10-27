@@ -9,7 +9,7 @@ Testet gör ungefär det som händer när två kompisar spelar:
   1. "Röd" skapar ett spel och får en spelkod
   2. Röd går in i lobbyn och servern skapar Röds spelarinfo
   3. "Blå" letar upp spelet med koden och går med
-  4. Röd och Blå skickar meddelanden till varandra genom servern
+  4. Röd byter färg och ändrar inställningar, Blå chattar
   5. Blå lämnar, och Röd får veta det
 """
 
@@ -52,6 +52,7 @@ class FakePlayer:
         self.sock.settimeout(0.5)
         self.next_id = 1
         self.inbox = []  # mottagna meddelanden: (tagg, MessageReader)
+        self.seen = set()  # paketnummer vi redan fått (servern skickar om ibland)
         self.client_id = None
 
     def send_raw(self, data):
@@ -83,7 +84,10 @@ class FakePlayer:
             kind = data[0]
             if kind == protocol.RELIABLE:
                 self.send_raw(bytes([protocol.ACK, data[1], data[2], 0xFF]))
-                self._store(data[3:])
+                packet_id = (data[1] << 8) | data[2]
+                if packet_id not in self.seen:
+                    self.seen.add(packet_id)
+                    self._store(data[3:])
             elif kind == protocol.UNRELIABLE:
                 self._store(data[1:])
             elif kind == protocol.DISCONNECT:
@@ -120,25 +124,58 @@ class FakePlayer:
         self.send_raw(bytes([protocol.DISCONNECT]))
 
 
-def host_game_message():
-    """Spelinställningar ungefär som spelet skickar dem."""
-    w = MessageWriter().start_message(protocol.HOST_GAME)
+def game_options(kill_cooldown=30.0, impostors=2):
+    """Spelinställningar i samma format som spelet (version 10, vanligt läge)."""
+    w = MessageWriter()
     w.write_packed_uint32(0).write_byte(10)  # version 10
     w.start_message(0)
     w.write_byte(1)  # vanligt läge
-    w.write_byte(0).write_byte(0)
+    w.write_byte(0).write_byte(0)  # specialläge, regelförval
     w.write_byte(10)  # max 10 spelare
-    w.write_uint32(1)  # språk
+    w.write_uint32(256)  # språk: engelska
     w.write_byte(2)  # Polus
-    w.write_bytes(struct.pack("<ffff", 1.0, 1.0, 1.5, 30.0))
-    w.write_bytes(bytes([1, 1, 2]))
-    w.write_int32(1)
-    w.write_byte(2)  # 2 impostors
-    w.write_bytes(bytes(20))  # resten av inställningarna
+    w.write_bytes(struct.pack("<ffff", 1.0, 1.0, 1.5, kill_cooldown))
+    w.write_bytes(bytes([1, 1, 2]))  # uppdrag
+    w.write_int32(1)  # nödmöten
+    w.write_byte(impostors)
+    w.write_byte(1)  # kill-avstånd
+    w.write_int32(15).write_int32(120)  # diskussion, röstning
+    w.write_bool(False).write_byte(15)  # standard?, nödmötes-cooldown
+    w.write_bool(True).write_bool(True).write_bool(False).write_byte(0)
+    w.write_byte(1)  # lobbynivå
+    w.write_packed_uint32(1)  # en roll:
+    w.write_bytes(struct.pack("<h", 2)).write_byte(1).write_byte(50)  # Scientist, max 1, 50 %
+    w.start_message(0).write_byte(15).write_byte(5).end_message()
     w.end_message()
+    return w.to_bytes()
+
+
+def host_game_message():
+    w = MessageWriter().start_message(protocol.HOST_GAME)
+    w.write_bytes(game_options())
     w.write_int32(0)  # crossplay
     w.write_packed_uint32(0)  # filter
     w.end_message()
+    return w.to_bytes()
+
+
+def spawn_part(spawn_type, owner, net_id, data=b""):
+    w = MessageWriter().start_message(protocol.GameDataTag.SPAWN)
+    w.write_packed_uint32(spawn_type).write_packed_int32(owner).write_byte(0)
+    w.write_packed_uint32(1).write_packed_uint32(net_id)
+    w.start_message(1).write_bytes(data).end_message()
+    w.end_message()
+    return w.to_bytes()
+
+
+def game_manager_options(options):
+    """GameManager-data: del nr 4 är inställningarna."""
+    return MessageWriter().start_message(4).write_bytes(options).end_message().to_bytes()
+
+
+def rpc_part(net_id, call, payload):
+    w = MessageWriter().start_message(protocol.GameDataTag.RPC)
+    w.write_packed_uint32(net_id).write_byte(call).write_bytes(payload).end_message()
     return w.to_bytes()
 
 
@@ -227,12 +264,33 @@ def main():
     ok("båda fick Blås spelarinfo")
     red.take(protocol.GAME_DATA)  # Blås "jag har laddat lobbyn", vidareskickat till Röd
 
-    step("4. Röd och Blå pratar genom servern")
-    hello_part = MessageWriter().start_message(protocol.GameDataTag.RPC).write_packed_uint32(1).write_byte(13).write_string("hej!").end_message().to_bytes()
-    red.game_data(code_int, hello_part)
-    relayed = blue.take(protocol.GAME_DATA)
-    assert hello_part in relayed.data
-    ok("Blå fick Röds meddelande")
+    step("4. Röd och Blå spelar i lobbyn")
+    # Röd (värden) skapar sin gubbe och GameManager, precis som spelet gör.
+    red.game_data(code_int, spawn_part(protocol.SPAWN_PLAYER_CONTROL, red.client_id, 10))
+    red.game_data(code_int, spawn_part(protocol.SPAWN_NORMAL_GAME_MANAGER, -2, 20, game_manager_options(game_options())))
+    blue.take(protocol.GAME_DATA)
+    blue.take(protocol.GAME_DATA)
+    ok("Blå ser Röds gubbe och lobbyn")
+
+    color = MessageWriter().write_uint32(net_id).write_byte(11).to_bytes()  # Lime
+    red.game_data(code_int, rpc_part(10, protocol.RPC_SET_COLOR, color))
+    blue.take(protocol.GAME_DATA)
+    ok("Röd bytte färg och Blå fick veta det")
+
+    change = MessageWriter().start_message(protocol.GameDataTag.DATA).write_packed_uint32(20)
+    change.write_bytes(game_manager_options(game_options(kill_cooldown=25.0, impostors=1))).end_message()
+    red.game_data(code_int, change.to_bytes())
+    blue.take(protocol.GAME_DATA)
+    ok("Röd ändrade inställningar och Blå fick dem (servern ska logga ändringarna)")
+    status, body = http("GET", f"/api/games/{code_int}")
+    assert json.loads(body)["Game"]["NumImpostors"] == 1, "spellistan borde visa 1 impostor nu"
+    ok("spellistan visar de nya inställningarna")
+
+    chat = rpc_part(30, protocol.RPC_SEND_CHAT, MessageWriter().write_string("hej Röd!").to_bytes())
+    blue.game_data(code_int, chat)
+    relayed = red.take(protocol.GAME_DATA)
+    assert chat in relayed.data
+    ok("Röd fick Blås chattmeddelande")
 
     step("5. Blå lämnar")
     blue.disconnect()

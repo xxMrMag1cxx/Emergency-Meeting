@@ -164,7 +164,20 @@ FIRST_SERVER_NET_ID = 100000
 SERVER_OWNED = -4
 
 # Typnummer för objekt som kan skapas (spawnas).
+SPAWN_PLAYER_CONTROL = 4  # en spelargubbe
+SPAWN_HIDE_AND_SEEK_MANAGER = 9
+SPAWN_NORMAL_GAME_MANAGER = 10  # håller bl.a. spelinställningarna
 SPAWN_PLAYER_INFO = 11
+
+# Några "gör något"-meddelanden (RPC) som servern tittar på.
+RPC_SET_COLOR = 8
+RPC_SEND_CHAT = 13
+
+COLORS = {
+    0: "Red", 1: "Blue", 2: "Green", 3: "Pink", 4: "Orange", 5: "Yellow",
+    6: "Black", 7: "White", 8: "Purple", 9: "Brown", 10: "Cyan", 11: "Lime",
+    12: "Maroon", 13: "Rose", 14: "Banana", 15: "Gray", 16: "Tan", 17: "Coral",
+}
 
 
 # --- Kartor och spellägen -----------------------------------------------

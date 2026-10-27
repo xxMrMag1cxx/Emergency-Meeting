@@ -50,6 +50,12 @@ class MessageReader:
     def read_uint16(self) -> int:
         return struct.unpack("<H", self._take(2))[0]
 
+    def read_int16(self) -> int:
+        return struct.unpack("<h", self._take(2))[0]
+
+    def read_float(self) -> float:
+        return struct.unpack("<f", self._take(4))[0]
+
     def read_uint32(self) -> int:
         return struct.unpack("<I", self._take(4))[0]
 

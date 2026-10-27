@@ -23,8 +23,9 @@ from typing import Optional
 from . import protocol
 from .config import Config
 from .hazel import Connection
-from .lobby import GameOptions, GameState, Limbo, Lobby, LobbyManager, Player, parse_game_options
+from .lobby import GameState, Limbo, Lobby, LobbyManager, Player
 from .messages import MessageReader, MessageWriter
+from .options import GameOptions, differences, read_options
 
 log = logging.getLogger("spel")
 
@@ -104,7 +105,7 @@ class Game:
 
     def handle_host_game(self, connection: Connection, message: MessageReader, reliable: bool) -> None:
         try:
-            options = parse_game_options(message)
+            options = read_options(message)
         except ValueError:
             log.warning("Kunde inte läsa spelinställningarna från %s, använder standardvärden", connection.name)
             options = GameOptions()
@@ -161,6 +162,7 @@ class Game:
 
     def _join_lobby(self, lobby: Lobby, player: Player) -> None:
         role = "värd" if player.client_id == lobby.host_id else "spelare"
+        self._warn_if_other_version(lobby, player)
         log.info(
             "%s gick med i %s som %s (%d/%d spelare)",
             player.name,
@@ -174,6 +176,23 @@ class Game:
         player.limbo = Limbo.IN_GAME
         player.connection.send_reliable(welcome)
         lobby.send_to_all(self._join_game_message(lobby, player), except_id=player.client_id)
+
+    @staticmethod
+    def _warn_if_other_version(lobby: Lobby, player: Player) -> None:
+        host = lobby.host
+        if host is None or host is player or not host.connection.handshake or not player.connection.handshake:
+            return
+        mine = player.connection.handshake.game_version
+        theirs = host.connection.handshake.game_version
+        if mine != theirs:
+            log.warning(
+                "%s har en annan spelversion (%s) än värden %s (%s). Det kan krångla, "
+                "uppdatera spelet på båda om det blir konstigt.",
+                player.name,
+                protocol.decode_game_version(mine),
+                host.name,
+                protocol.decode_game_version(theirs),
+            )
 
     def _join_after_round(self, lobby: Lobby, player: Player) -> None:
         """Efter en runda: värden måste komma tillbaka först."""
@@ -219,6 +238,7 @@ class Game:
             p.limbo = Limbo.PRE_SPAWN
         # Spelarinfo skapas på nytt när alla kommer tillbaka till lobbyn.
         lobby.server_objects.clear()
+        lobby.player_controls.clear()
 
     def handle_alter_game(self, connection: Connection, message: MessageReader, reliable: bool) -> None:
         player, lobby = self._host_check(connection, message)
@@ -302,7 +322,9 @@ class Game:
             lobby.send_to_all(payload, reliable, except_id=player.client_id)
 
     def _inspect_game_data(self, lobby: Lobby, player: Player, part: MessageReader) -> None:
-        if part.tag == protocol.GameDataTag.SCENE_CHANGE:
+        tag = part.tag
+
+        if tag == protocol.GameDataTag.SCENE_CHANGE:
             client_id = part.read_packed_int32()
             scene = part.read_string()
             if client_id == player.client_id and scene == "OnlineGame":
@@ -310,15 +332,79 @@ class Game:
                 lobby.sync_player_infos(player)
                 lobby.spawn_player_info(player)
 
-        elif part.tag == protocol.GameDataTag.DATA:
+        elif tag == protocol.GameDataTag.SPAWN:
+            self._inspect_spawn(lobby, part)
+
+        elif tag == protocol.GameDataTag.DATA:
             net_id = part.read_packed_uint32()
             obj = lobby.server_objects.get(net_id)
             if obj is not None:
                 obj.state = part.read_rest()  # spara senaste namn, färg osv.
+            elif net_id == lobby.game_manager_net_id:
+                self._inspect_game_manager(lobby, player, part)
 
-        elif part.tag == protocol.GameDataTag.DESPAWN:
+        elif tag == protocol.GameDataTag.RPC:
+            self._inspect_rpc(lobby, player, part)
+
+        elif tag == protocol.GameDataTag.DESPAWN:
             net_id = part.read_packed_uint32()
             lobby.server_objects.pop(net_id, None)
+            lobby.player_controls.pop(net_id, None)
+
+    # --- Saker som händer i lobbyn: inställningar, färger, chatt ---------
+
+    def _inspect_spawn(self, lobby: Lobby, part: MessageReader) -> None:
+        """Någon (oftast värden) skapar ett objekt. Vissa vill vi hålla koll på."""
+        spawn_type = part.read_packed_uint32()
+        owner = part.read_packed_int32()
+        part.read_byte()  # flaggor
+        if part.read_packed_uint32() < 1:
+            return
+        net_id = part.read_packed_uint32()
+        data = part.read_message()
+
+        if spawn_type == protocol.SPAWN_PLAYER_CONTROL:
+            lobby.player_controls[net_id] = owner
+
+        elif spawn_type in (protocol.SPAWN_NORMAL_GAME_MANAGER, protocol.SPAWN_HIDE_AND_SEEK_MANAGER):
+            lobby.game_manager_net_id = net_id
+            lobby.options_part = 4 if spawn_type == protocol.SPAWN_NORMAL_GAME_MANAGER else 5
+            for component in data.messages():
+                if component.tag == lobby.options_part:
+                    lobby.options = read_options(component)
+                    log.debug("%s: inställningarna lästa från GameManager", lobby.code)
+
+    def _inspect_game_manager(self, lobby: Lobby, player: Player, part: MessageReader) -> None:
+        """Värden har ändrat något i GameManager. Del nummer 4 (eller 5) är inställningarna."""
+        for component in part.messages():
+            if component.tag != lobby.options_part:
+                continue
+            new_options = read_options(component)
+            changes = differences(lobby.options, new_options)
+            for change in changes:
+                log.info("%s: %s ändrade %s", lobby.code, player.name, change)
+            lobby.options = new_options
+
+    def _inspect_rpc(self, lobby: Lobby, player: Player, part: MessageReader) -> None:
+        net_id = part.read_packed_uint32()
+        call = part.read_byte()
+
+        if call == protocol.RPC_SEND_CHAT:
+            log.info("%s chatt  %s: %s", lobby.code, player.name, part.read_string())
+
+        elif call == protocol.RPC_SET_COLOR:
+            part.read_uint32()
+            color = part.read_byte()
+            owner = lobby.player_controls.get(net_id)
+            target = lobby.players.get(owner) if owner is not None else None
+            if target is not None and lobby.colors.get(target.client_id) != color:
+                lobby.colors[target.client_id] = color
+                log.info(
+                    "%s: %s har färgen %s",
+                    lobby.code,
+                    target.name,
+                    protocol.COLORS.get(color, f"nr {color}"),
+                )
 
     def handle_packed_game_data_to(self, connection: Connection, message: MessageReader, reliable: bool) -> None:
         """Värden kan skicka flera "till en spelare"-meddelanden i ett paket."""
@@ -349,6 +435,7 @@ class Game:
         if player is None:
             return
         player.connection.player = None
+        lobby.colors.pop(client_id, None)
         log.info("%s lämnade %s", player.name, lobby.code)
 
         if client_id == lobby.host_id:
