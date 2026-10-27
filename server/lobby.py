@@ -68,6 +68,11 @@ class Player:
         return self.lobby.host_id == self.client_id
 
     @property
+    def is_bot(self) -> bool:
+        """True om spelaren är en bot som servern styr."""
+        return getattr(self.connection, "is_bot", False)
+
+    @property
     def color(self) -> str:
         """Färgen spelaren har valt, t.ex. "Red". Tom text om den inte är känd än."""
         number = self.lobby.colors.get(self.client_id)
@@ -146,6 +151,9 @@ class Lobby:
         self.server_objects: Dict[int, PlayerInfoObject] = {}
         self._next_net_id = protocol.FIRST_SERVER_NET_ID
 
+        # Spellogiken som äger lobbyn (behövs för att skapa bots).
+        self.server = None
+
         # Värdens "GameManager"-objekt, där inställningarna bor.
         self.game_manager_net_id: Optional[int] = None
         self.options_part = 4  # vilken del av GameManager som är inställningarna
@@ -192,6 +200,30 @@ class Lobby:
     @property
     def is_started(self) -> bool:
         return self.state == GameState.STARTED
+
+    @property
+    def bots(self) -> List[Player]:
+        """Alla bots i lobbyn, i den ordning de lades till."""
+        return [p for p in self.players.values() if p.is_bot]
+
+    def add_bot(self, name: str) -> Optional[Player]:
+        """
+        Lägger till en bot med namnet `name`. Returnerar boten, eller None
+        om det inte gick (lobbyn är full, en runda pågår, eller ingen värd).
+        """
+        if self.server is None:
+            return None
+        return self.server.add_bot(self, name)
+
+    def remove_bot(self, bot: Optional[Player] = None) -> bool:
+        """Tar bort en bot (den senast tillagda om ingen anges). False om det inte fanns någon."""
+        bots = self.bots
+        if bot is None:
+            bot = bots[-1] if bots else None
+        if bot is None or not bot.is_bot:
+            return False
+        bot.connection.disconnect()
+        return True
 
     def send_chat(self, text: str) -> bool:
         """

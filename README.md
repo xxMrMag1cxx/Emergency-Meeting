@@ -110,14 +110,15 @@ inställning som servern inte känner till står det "Övriga inställningar".
 
 ## Plugins
 
-Mappen `plugins/` innehåller plugins som servern laddar när den startar.
+Mappen `plugins/` är till för plugins som servern laddar när den startar.
 Ett plugin är en Python-fil som kan reagera på saker som händer (någon går
 med, skriver i chatten, ändrar inställningar...) och själv skicka
-chattmeddelanden.
+chattmeddelanden eller lägga till bots.
 
-Pluginet `halsning.py` är påslaget och välkomnar nya spelare. Två exempel
-till är avstängda: byt namn på `_tarning.py` till `tarning.py` för att få
-chattkommandon som `/tärning`.
+Färdiga plugins finns i
+[Common Emergency Meeting Plugins (CEMP)](https://github.com/xxMrMag1cxx/Common-Emergency-Meeting-Plugins).
+Ladda ner det repot som ZIP, packa upp det och lägg hela mappen i
+`plugins/`. Starta sedan om servern.
 
 Hur man skriver egna plugins står i [plugins/README.md](plugins/README.md).
 
@@ -152,6 +153,7 @@ server/
   lobby.py       en lobby: spelkod, spelare, värd och spelarinfo
   options.py     läser spelinställningarna och visar vad som ändrats
   plugins.py     laddar plugins och anropar dem när något händer
+  bots.py        bots: låtsasspelare som servern styr
 plugins/         plugins som servern laddar (se plugins/README.md)
   gamecode.py    spelkoder ("ABCDEF") och talen spelet skickar
   messages.py    läsa och skriva bytes

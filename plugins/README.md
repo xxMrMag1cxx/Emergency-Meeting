@@ -8,18 +8,14 @@ spelare.
 ## Slå på och av
 
 - Alla `.py`-filer i den här mappen laddas när servern startar.
-- Filer som börjar med `_` hoppas över. Byt namn på `_tarning.py` till
-  `tarning.py` för att slå på det, och tillbaka för att slå av det.
+- Filer som börjar med `_` hoppas över. Byt namn på `botplugin.py` till
+  `_botplugin.py` för att slå av det, och tillbaka för att slå på det.
 - Starta om servern efter att ni har ändrat något.
 - Alla plugins kan stängas av med `"plugins": false` i `config.json`.
 
-Pluginen som följer med:
-
-| Fil            | Påslagen | Vad den gör |
-|----------------|----------|-------------|
-| `halsning.py`  | ja       | Välkomnar nya spelare i chatten |
-| `_tarning.py`  | nej      | Chattkommandon: `/tärning`, `/hjälp`, `/inställning` |
-| `_ordfilter.py`| nej      | Stoppar chattmeddelanden med vissa ord |
+Servern har inga plugins inbyggda. Färdiga plugins finns i
+[Common Emergency Meeting Plugins (CEMP)](https://github.com/xxMrMag1cxx/Common-Emergency-Meeting-Plugins),
+till exempel `botplugin.py` som lägger till bots med `/bot_add`.
 
 ## Plugins från ett annat repo
 
@@ -28,10 +24,9 @@ Ladda ner repot som ZIP, packa upp det och lägg hela mappen här i
 
 ```
 plugins/
-  halsning.py
-  Emergency-Meeting-Plugins-main/
-    tarning.py
-    mitt_plugin.py
+  README.md
+  Common-Emergency-Meeting-Plugins-main/
+    botplugin.py
 ```
 
 Ett större plugin kan också vara en egen mapp med en `__init__.py` i.
@@ -53,8 +48,15 @@ Spara, starta om servern, och kolla att det står
 `Laddade pluginet Mitt plugin` i serverfönstret. Om pluginet har ett fel
 skrivs felet ut, men servern fortsätter att fungera.
 
-Använd `log.info(...)` (se `halsning.py`) eller `print(...)` för att skriva
-till serverfönstret.
+Skriv till serverfönstret med `print(...)`, eller med en logger:
+
+```python
+import logging
+log = logging.getLogger("plugin.mitt_plugin")
+
+def on_player_joined(lobby, player):
+    log.info("%s kom in i %s", player.name, lobby.code)
+```
 
 ## Händelser
 
@@ -90,6 +92,9 @@ Ett plugin lyssnar på en händelse genom att ha en funktion med samma namn.
 | `lobby.is_public` | `True` om spelet är offentligt |
 | `lobby.is_started` | `True` om en runda pågår |
 | `lobby.send_chat("text")` | Skriver i chatten till alla (syns som att värden skrev) |
+| `lobby.bots` | Lista med alla bots i lobbyn |
+| `lobby.add_bot("Bot_1")` | Lägger till en bot. Ger tillbaka boten, eller `None` om det inte gick |
+| `lobby.remove_bot(bot)` | Tar bort en bot (den senaste om ingen anges) |
 
 **`player`** (en spelare):
 
@@ -99,8 +104,16 @@ Ett plugin lyssnar på en händelse genom att ha en funktion med samma namn.
 | `player.color` | Färgen, t.ex. `"Red"` (tom text om den inte är vald än) |
 | `player.platform` | T.ex. `"Steam (PC)"` eller `"iPhone/iPad"` |
 | `player.is_host` | `True` om spelaren är värd |
+| `player.is_bot` | `True` om spelaren är en bot |
 | `player.send_chat("text")` | Skriver i chatten bara till den här spelaren |
 | `player.disconnect("text")` | Kopplar bort spelaren och visar texten |
 
 Chattmeddelanden från servern syns som att någon i lobbyn skrev dem,
 eftersom Among Us inte har något sätt att visa meddelanden "från servern".
+
+## Bots
+
+En bot är en låtsasspelare som servern styr. För de andra ser den ut som en
+vanlig spelare: den går med, får namn och färg av värden och säger "redo"
+när en runda startar. Den kan inte röra sig eller göra uppdrag än, och den
+kan aldrig bli värd. Bots kan bara läggas till i lobbyn, inte under en runda.

@@ -118,6 +118,7 @@ PLATFORMS = {
     10: "Playstation",
 }
 
+STEAM = 2
 XBOX = 9
 PLAYSTATION = 10
 

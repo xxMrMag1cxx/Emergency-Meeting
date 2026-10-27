@@ -22,6 +22,7 @@ from typing import Callable, List, Optional
 
 from . import protocol
 from .config import Config
+from .bots import BotConnection
 from .hazel import Connection
 from .lobby import GameState, Limbo, Lobby, LobbyManager, Player
 from .messages import MessageReader, MessageWriter
@@ -115,6 +116,7 @@ class Game:
             options = GameOptions()
 
         lobby = self.lobbies.create(options)
+        lobby.server = self
         log.info(
             "%s skapade spelet %s (%s, %s, max %d spelare, %d impostor%s)",
             connection.name,
@@ -170,7 +172,12 @@ class Game:
             self.plugins.fire("on_player_joined", lobby, player)
 
     def _join_lobby(self, lobby: Lobby, player: Player) -> None:
-        role = "värd" if player.client_id == lobby.host_id else "spelare"
+        if player.client_id == lobby.host_id:
+            role = "värd"
+        elif player.is_bot:
+            role = "bot"
+        else:
+            role = "spelare"
         self._warn_if_other_version(lobby, player)
         log.info(
             "%s gick med i %s som %s (%d/%d spelare)",
@@ -414,9 +421,12 @@ class Game:
             if spawned is not None:
                 # Vänta tills alla har fått veta om gubben, annars hamnar t.ex.
                 # ett välkomstmeddelande från ett plugin ingenstans.
-                self._after_forward.append(
-                    lambda: self.plugins.fire("on_player_spawned", lobby, spawned)
-                )
+                def after_spawn() -> None:
+                    if isinstance(spawned.connection, BotConnection):
+                        spawned.connection.on_spawned(net_id)
+                    self.plugins.fire("on_player_spawned", lobby, spawned)
+
+                self._after_forward.append(after_spawn)
 
         elif spawn_type in (protocol.SPAWN_NORMAL_GAME_MANAGER, protocol.SPAWN_HIDE_AND_SEEK_MANAGER):
             lobby.game_manager_net_id = net_id
@@ -506,7 +516,12 @@ class Game:
 
         self.plugins.fire("on_player_left", lobby, player)
 
-        if not lobby.players:
+        if not any(not p.is_bot for p in lobby.players.values()):
+            # Bara bots (eller ingen alls) kvar: stäng spelet.
+            for bot in list(lobby.players.values()):
+                bot.connection.connected = False
+                bot.connection.player = None
+            lobby.players.clear()
             log.info("%s är tomt och har tagits bort", lobby.code)
             self.lobbies.remove(lobby)
             return
@@ -520,7 +535,8 @@ class Game:
         lobby.send_to_all(w.to_bytes(), except_id=client_id)
 
     def _migrate_host(self, lobby: Lobby) -> None:
-        new_host = next(iter(lobby.players.values()), None)
+        # En bot kan inte vara värd, så välj första riktiga spelaren.
+        new_host = next((p for p in lobby.players.values() if not p.is_bot), None)
         if new_host is None:
             lobby.host_id = -1
             return
@@ -531,6 +547,29 @@ class Game:
             lobby.state = GameState.NOT_STARTED
             self._join_lobby(lobby, new_host)
             self._let_waiting_players_in(lobby)
+
+    # =====================================================================
+    # Bots
+    # =====================================================================
+
+    def add_bot(self, lobby: Lobby, name: str) -> Optional[Player]:
+        host = lobby.host
+        if host is None or lobby.state != GameState.NOT_STARTED:
+            return None
+        if len(lobby.players) >= lobby.options.max_players:
+            return None
+
+        taken = set(lobby.colors.values())
+        color = next((c for c in protocol.COLORS if c not in taken), 0)
+        version = host.connection.handshake.game_version if host.connection.handshake else 0
+
+        self._next_client_id += 1
+        bot = BotConnection(self, self._next_client_id, name, version, color)
+        bot.join(lobby.code_int)
+        player = self._player(bot)  # type: ignore[arg-type]
+        if player is None:
+            return None
+        return player
 
     async def cleanup_loop(self) -> None:
         """Tar bort spel som skapades men där ingen gick med."""
