@@ -87,7 +87,13 @@ class MatchmakerHandler(BaseHTTPRequestHandler):
         pass
 
     def log_error(self, format: str, *args: Any) -> None:
-        log.warning("HTTP-fel från %s: %s", self.client_address[0], format % args)
+        text = format % args
+        if "timed out" in text:
+            # cloudflared håller anslutningar öppna "ifall att". När de har
+            # varit tysta en stund stänger vi dem. Det är helt normalt.
+            log.debug("Stängde en tyst anslutning från %s", self.client_address[0])
+            return
+        log.warning("HTTP-fel från %s: %s", self.client_address[0], text)
 
     # --- Hjälpfunktioner -------------------------------------------------
 
@@ -221,7 +227,11 @@ class MatchmakerHandler(BaseHTTPRequestHandler):
 
     def do_PUT(self) -> None:
         path, _query = self._path()
-        self._read_json()
+        # Spelet skickar med lite data här som inte är JSON. Vi behöver den
+        # inte än, men måste läsa den så att anslutningen inte blir rörig.
+        length = int(self.headers.get("Content-Length") or 0)
+        body = self.rfile.read(length) if length else b""
+        log.debug("PUT %s med %d bytes: %s", self.path, len(body), body.hex(" "))
 
         if path == "/api/games":
             log.info(
