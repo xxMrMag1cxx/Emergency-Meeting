@@ -37,13 +37,6 @@ class Config:
     # i hemnätverket (t.ex. 192.168.1.23).
     public_ip: str = "auto"
 
-    # Texten som visas i spelet när någon försöker skapa eller gå med
-    # i ett spel. {namn} byts ut mot spelarens namn.
-    welcome_message: str = (
-        "Hej {namn}! Emergency Meeting-servern fungerar. "
-        "Att skapa spel kommer i nästa steg."
-    )
-
     # Starta en HTTPS-tunnel med cloudflared (krävs för att Among Us
     # ska kunna ansluta från en annan enhet än Macen).
     https_tunnel: bool = True

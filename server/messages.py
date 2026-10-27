@@ -74,6 +74,11 @@ class MessageReader:
             if b < 0x80:
                 return result
 
+    def read_packed_int32(self) -> int:
+        """Som read_packed_uint32, men kan bli negativt (t.ex. -4)."""
+        value = self.read_packed_uint32() & 0xFFFFFFFF
+        return value - (1 << 32) if value >= (1 << 31) else value
+
     def read_string(self) -> str:
         length = self.read_packed_uint32()
         return self._take(length).decode("utf-8", errors="replace")
@@ -133,6 +138,16 @@ class MessageWriter:
             else:
                 self.buffer.append(b)
                 return self
+
+    def write_packed_int32(self, value: int) -> "MessageWriter":
+        # Negativa tal skrivs som stora positiva, precis som i spelet.
+        return self.write_packed_uint32(value & 0xFFFFFFFF)
+
+    def write_message(self, message: "MessageReader") -> "MessageWriter":
+        """Skriver tillbaka ett helt meddelande vi har tagit emot (för att skicka vidare)."""
+        self.start_message(message.tag or 0)
+        self.write_bytes(message.data)
+        return self.end_message()
 
     def write_string(self, text: str) -> "MessageWriter":
         encoded = text.encode("utf-8")

@@ -43,6 +43,10 @@ class Connection:
         self.last_seen = time.monotonic()
         self.connected = True
 
+        # Fylls i av spellogiken: spelarens nummer och vilken lobby hen är i.
+        self.client_id = 0
+        self.player: Optional[object] = None
+
         self._next_id = 1
         # Paketnummer vi redan har tagit emot (för att upptäcka dubbletter).
         self._received_ids: Set[int] = set()

@@ -27,9 +27,11 @@ import struct
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Optional, Tuple
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
+from . import gamecode
 from .config import Config
+from .lobby import Lobby, LobbyManager
 from .protocol import DisconnectReason
 from .region import region_info_json
 from .webpage import render
@@ -45,9 +47,10 @@ def ip_to_number(ip: str) -> int:
 class ServerInfo:
     """Saker som HTTP-delen behöver veta och som kan ändras medan servern kör."""
 
-    def __init__(self, config: Config, public_ip: str):
+    def __init__(self, config: Config, public_ip: str, lobbies: LobbyManager):
         self.config = config
         self.public_ip = public_ip
+        self.lobbies = lobbies
         self.tunnel_url = ""  # fylls i när tunneln är igång
 
 
@@ -139,6 +142,28 @@ class MatchmakerHandler(BaseHTTPRequestHandler):
             return f"https://{host}", 443, True
         return f"http://{host}", self.config.port, False
 
+    def _listing(self, lobby: Lobby) -> dict:
+        """Beskrivningen av ett spel som visas i spelets lista."""
+        host = lobby.host
+        hs = host.connection.handshake if host else None
+        return {
+            "IP": ip_to_number(self.info.public_ip),
+            "Port": self.config.port,
+            "GameId": lobby.code_int,
+            "PlayerCount": len(lobby.players),
+            "HostName": lobby.host_name,
+            "TrueHostName": lobby.host_name,
+            "HostPlatformName": hs.platform_name if hs else "",
+            "Platform": hs.platform if hs else 0,
+            "QuickChat": hs.chat_mode if hs else 1,
+            "Age": 0,
+            "MaxPlayers": lobby.options.max_players,
+            "NumImpostors": lobby.options.num_impostors,
+            "MapId": lobby.options.map_id,
+            "Language": lobby.options.keywords,
+            "Options": base64.b64encode(lobby.options.raw).decode("ascii"),
+        }
+
     def _host_server(self) -> dict:
         return {"Ip": ip_to_number(self.info.public_ip), "Port": self.config.port}
 
@@ -171,23 +196,35 @@ class MatchmakerHandler(BaseHTTPRequestHandler):
             self._send(200, {"filters": ["Tags", "NumImposters"]})
 
         elif path in ("/api/games", "/api/games/filtered"):
-            # Inga offentliga spel än: vi skickar en tom lista.
-            log.info("Spelet frågade efter offentliga spel (inga finns än)")
+            # Listan över offentliga spel ("Find Game" i spelet).
+            listings = [self._listing(lobby) for lobby in self.info.lobbies.public_lobbies()]
+            log.info("Spelet frågade efter offentliga spel (%d st)", len(listings))
             if path.endswith("filtered"):
+                total = len(self.info.lobbies.all())
                 self._send(
                     200,
-                    {"games": [], "metadata": {"allGamesCount": 0, "matchingGamesCount": 0}},
+                    {"games": listings, "metadata": {"allGamesCount": total, "matchingGamesCount": len(listings)}},
                 )
             else:
-                self._send(200, [])
+                self._send(200, listings)
 
         elif path.startswith("/api/games/"):
-            code = path.rsplit("/", 1)[-1]
-            log.info("Spelet letar efter spelkod %s (vi har inga spel än)", code)
-            self._send(
-                404,
-                {"Errors": [{"Reason": DisconnectReason.GAME_NOT_FOUND}], "Game": None},
-            )
+            # "Var finns spelet med den här koden?" (när man skriver in en kod)
+            try:
+                code_int = int(path.rsplit("/", 1)[-1])
+            except ValueError:
+                code_int = -1
+            lobby = self.info.lobbies.find(code_int)
+            code = gamecode.int_to_code(code_int) if code_int != -1 else "?"
+            if lobby is None:
+                log.info("Någon letade efter spelkod %s, men det spelet finns inte", code)
+                self._send(
+                    404,
+                    {"Errors": [{"Reason": DisconnectReason.GAME_NOT_FOUND}], "Game": None},
+                )
+            else:
+                log.info("Någon letade efter spelkod %s och hittade det", code)
+                self._send(200, {"Errors": None, "Game": self._listing(lobby)})
 
         elif path == "/favicon.ico":
             self._send(404, "")
@@ -197,7 +234,7 @@ class MatchmakerHandler(BaseHTTPRequestHandler):
             self._send(404, "Hittades inte")
 
     def do_POST(self) -> None:
-        path, _query = self._path()
+        path, query = self._path()
         body = self._read_json()
 
         if path == "/api/user":
@@ -218,8 +255,15 @@ class MatchmakerHandler(BaseHTTPRequestHandler):
             self._send(200, encoded, "text/plain; charset=utf-8")
 
         elif path == "/api/games":
-            # Äldre sätt att leta efter ett spel. Inga spel finns än.
-            self._send(404, {"Errors": [{"Reason": DisconnectReason.GAME_NOT_FOUND}]})
+            # Äldre sätt att leta efter ett spel med kod.
+            try:
+                code_int = int(parse_qs(query).get("gameId", ["-1"])[0])
+            except ValueError:
+                code_int = -1
+            if self.info.lobbies.find(code_int) is None:
+                self._send(404, {"Errors": [{"Reason": DisconnectReason.GAME_NOT_FOUND}]})
+            else:
+                self._send(200, self._host_server())
 
         else:
             log.info("Okänd POST-förfrågan: %s", self.path)

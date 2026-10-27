@@ -30,6 +30,9 @@ class Handshake:
     chat_mode: int = 0
     platform: int = 0
     platform_name: str = ""
+    # Plattformsdelen precis som den kom, så att vi kan skicka den vidare
+    # till de andra spelarna i lobbyn.
+    platform_raw: bytes = b""
     extra_bytes: bytes = b""
 
     @property
@@ -61,6 +64,7 @@ def parse_handshake(hazel_version: int, data: bytes) -> Handshake:
     if hs.game_version >= V3:
         platform = reader.read_message()
         hs.platform = platform.tag or 0
+        hs.platform_raw = platform.data
         hs.platform_name = platform.read_string()
         reader.read_int32()  # "crossplayFlags", används inte än
 

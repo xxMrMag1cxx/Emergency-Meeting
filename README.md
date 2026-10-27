@@ -9,10 +9,13 @@ med egna plugins.
 - [x] **Steg 1:** Servern tar emot spelet, läser spelarens namn och version,
       och svarar med ett eget meddelande som syns i spelet
 - [x] **Steg 2:** HTTPS via en Cloudflare-tunnel, så att spelet kan ansluta
-      från andra enheter (behöver testas med riktiga spelet)
-- [ ] **Steg 3:** Skapa spel och få en spelkod
+      från andra enheter
+- [x] **Steg 3:** Skapa spel, få en spelkod och komma in i lobbyn
+      (behöver testas med riktiga spelet)
 - [ ] **Steg 4:** Gå med i ett spel med spelkoden, flera spelare i samma lobby
-- [ ] **Steg 5:** Skicka speldata mellan spelarna, så att man kan spela en hel runda
+      (grunden finns, behöver testas med två enheter)
+- [ ] **Steg 5:** Spela en hel runda och "Play Again"
+      (grunden finns, behöver testas)
 - [ ] **Steg 6:** Eget pluginsystem
 
 ## Kom igång på Macen
@@ -67,7 +70,8 @@ Stäng av servern med **Ctrl+C**.
 ### 5. Testa utan spelet (valfritt)
 
 Låt servern vara igång och dubbelklicka på **`testa.command`**. Testklienten
-låtsas vara Among Us. Om allt fungerar skriver den `Allt fungerar!`.
+låtsas vara två Among Us-spelare: den ena skapar ett spel, den andra går med
+med spelkoden. Om allt fungerar skriver den `Allt fungerar!`.
 
 ## Ansluta med Among Us
 
@@ -81,8 +85,8 @@ Enheten som spelar måste vara på **samma wifi** som Macen.
 3. Starta om Among Us helt, välj servern **Emergency Meeting** och tryck på
    **Create Game**.
 
-Om allt fungerar visar spelet välkomstmeddelandet från servern. Att faktiskt
-skapa ett spel kommer i steg 3.
+Spelet får en spelkod och du hamnar i lobbyn. Andra på samma wifi kan gå med
+genom att lägga till servern på samma sätt och skriva in spelkoden.
 
 Eftersom adressen byts vid varje omstart behöver man göra om steg 1–2 efter
 att servern har startats om.
@@ -97,7 +101,6 @@ Inställningarna finns i `config.json`:
 | `listen_ip`        | `0.0.0.0` = lyssna på alla nätverk. Behöver sällan ändras |
 | `port`             | Port för både HTTP och spel. Among Us använder `22023` |
 | `public_ip`        | `auto` = Macens adress i hemnätverket. Kan sättas till en egen adress |
-| `welcome_message`  | Texten som visas i spelet. `{namn}` byts mot spelarens namn |
 | `https_tunnel`     | `true` = starta HTTPS-tunneln med cloudflared |
 | `cloudflared_path` | `auto` = leta efter cloudflared själv (projektmappen först) |
 | `debug`            | `true` = visa varje paket i loggen, bra vid felsökning |
@@ -114,11 +117,13 @@ server/
   region.py      bygger regionInfo.json och amongus://-länken
   hazel.py       nätverkslagret: kvitton, ping och omsändning av paket
   handshake.py   läser spelets första paket (namn, version, plattform)
-  game.py        spellogiken: vad servern gör med meddelandena
+  game.py        spellogiken: skapa spel, gå med, skicka vidare speldata
+  lobby.py       en lobby: spelkod, spelare, värd och spelarinfo
+  gamecode.py    spelkoder ("ABCDEF") och talen spelet skickar
   messages.py    läsa och skriva bytes
   protocol.py    alla siffror och namn som Among Us använder
 tools/
-  testklient.py  låtsas-Among Us för att testa servern
+  testklient.py  två låtsas-Among Us som testar servern
 start.command               starta servern
 testa.command               kör testklienten
 hamta-cloudflared.command   hämtar cloudflared
@@ -135,8 +140,17 @@ Among Us -----------------------UDP-----------------------> servern (UDP 22023)
    skapa spelet?". Servern svarar med Macens adress i hemnätverket.
 2. Spelet skickar ett **Hello**-paket direkt till Macen via **UDP** med namn
    och version.
-3. Spelet skickar **HostGame** ("skapa spel"). Servern svarar med
-   välkomstmeddelandet och kopplar bort spelaren.
+3. Spelet skickar **HostGame** ("skapa spel") med inställningarna. Servern
+   skapar en lobby och svarar med spelkoden.
+4. Spelet skickar **JoinGame** med koden. Servern svarar **JoinedGame**, och den
+   första som går med blir värd.
+5. Spelet laddar lobbyn. Servern skapar ett **spelarinfo**-objekt för spelaren
+   (där spelet sparar namn, färg och hatt).
+6. Därefter skickar värden **GameData** hela tiden (rörelser, färgbyten,
+   chatt...). Servern skickar vidare allt till de andra i lobbyn.
+
+Det mesta av spellogiken körs alltså hos värden. Servern är mest en brevbärare
+som håller koll på vem som är med i vilket spel.
 
 ## Felsökning
 
@@ -148,6 +162,9 @@ Among Us -----------------------UDP-----------------------> servern (UDP 22023)
 - **Token hämtas men inget mer händer**: spelet når HTTPS-delen men inte UDP.
   Kolla att enheten är på samma wifi och att brandväggen tillåter Python
   (Systeminställningar → Säkerhet och integritet → Brandvägg).
+- **Spelet fastnar efter Create Game** eller lobbyn ser konstig ut: sätt
+  `"debug": true` i `config.json`, prova igen och spara loggen. Den visar
+  exakt vad spelet och servern skickar till varandra.
 - **"Address already in use"**: servern körs redan i ett annat fönster. Stäng det.
 - **Spelet säger fel version**: skriv ner vilken version spelet har (står uppe
   till vänster i huvudmenyn) och vad loggen visar.

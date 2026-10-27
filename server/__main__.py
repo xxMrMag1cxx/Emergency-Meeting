@@ -18,6 +18,7 @@ from . import __version__  # noqa: E402
 from .config import CONFIG_FILE, PROJECT_DIR, load_config  # noqa: E402
 from .game import Game  # noqa: E402
 from .hazel import HazelServer  # noqa: E402
+from .lobby import LobbyManager  # noqa: E402
 from .matchmaker import ServerInfo, start_matchmaker  # noqa: E402
 from .region import region_info_json  # noqa: E402
 from .tunnel import Tunnel, find_cloudflared  # noqa: E402
@@ -57,7 +58,8 @@ def announce_tunnel(info: ServerInfo, url: str) -> None:
 async def run() -> None:
     config = load_config()
     setup_logging(config.debug)
-    info = ServerInfo(config, config.resolved_public_ip())
+    lobbies = LobbyManager()
+    info = ServerInfo(config, config.resolved_public_ip(), lobbies)
 
     try:
         httpd = start_matchmaker(info)
@@ -66,7 +68,7 @@ async def run() -> None:
         log.error("Kör servern redan i ett annat fönster? Stäng det först.")
         return
 
-    game = Game(config)
+    game = Game(config, lobbies)
     hazel = HazelServer(game.on_connect, game.on_message, game.on_disconnect, debug=config.debug)
 
     loop = asyncio.get_running_loop()
@@ -103,9 +105,11 @@ async def run() -> None:
             log.warning("Among Us på andra enheter kan inte ansluta utan HTTPS.")
             log.warning("Fixa det: dubbelklicka på hamta-cloudflared.command och starta om servern.")
 
+    cleanup = asyncio.ensure_future(game.cleanup_loop())
     try:
         await hazel.maintenance_loop()
     finally:
+        cleanup.cancel()
         if tunnel:
             tunnel.stop()
         transport.close()

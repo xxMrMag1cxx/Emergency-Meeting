@@ -141,3 +141,46 @@ def decode_game_version(value: int) -> str:
 
 def encode_game_version(year: int, month: int, day: int, revision: int = 0) -> int:
     return year * 25000 + month * 1800 + day * 50 + revision
+
+
+# --- Inne i GameData: själva spelet ------------------------------------
+# GameData-meddelanden innehåller i sin tur egna små meddelanden.
+
+class GameDataTag:
+    DATA = 1  # nytt tillstånd för ett objekt (t.ex. en spelares färg)
+    RPC = 2  # "gör något" (t.ex. döda, rapportera, rösta)
+    SPAWN = 4  # skapa ett nytt objekt (t.ex. en spelargubbe)
+    DESPAWN = 5  # ta bort ett objekt
+    SCENE_CHANGE = 6  # "jag har laddat lobbyn"
+    READY = 7
+    CHANGE_SETTINGS = 8
+
+
+# Objekt som servern själv skapar får nummer från 100000 och uppåt, så att
+# de inte krockar med värdens objekt.
+FIRST_SERVER_NET_ID = 100000
+
+# Ägaren -4 betyder "servern äger det här objektet".
+SERVER_OWNED = -4
+
+# Typnummer för objekt som kan skapas (spawnas).
+SPAWN_PLAYER_INFO = 11
+
+
+# --- Kartor och spellägen -----------------------------------------------
+
+MAPS = {
+    0: "The Skeld",
+    1: "MIRA HQ",
+    2: "Polus",
+    3: "dlekS ehT",
+    4: "The Airship",
+    5: "The Fungle",
+}
+
+GAME_MODES = {
+    1: "Vanligt",
+    2: "Hide n Seek",
+    3: "Vanligt (aprilskämt)",
+    4: "Hide n Seek (aprilskämt)",
+}

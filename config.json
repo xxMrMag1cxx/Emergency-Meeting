@@ -3,7 +3,6 @@
     "listen_ip": "0.0.0.0",
     "port": 22023,
     "public_ip": "auto",
-    "welcome_message": "Hej {namn}! Emergency Meeting-servern fungerar. Att skapa spel kommer i nästa steg.",
     "https_tunnel": true,
     "cloudflared_path": "auto",
     "debug": false
