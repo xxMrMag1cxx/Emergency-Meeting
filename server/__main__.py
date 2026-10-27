@@ -13,6 +13,7 @@ if sys.version_info < (3, 8):
 
 import asyncio  # noqa: E402
 import logging  # noqa: E402
+import threading  # noqa: E402
 
 from . import __version__  # noqa: E402
 from .config import CONFIG_FILE, PROJECT_DIR, load_config  # noqa: E402
@@ -37,23 +38,57 @@ def setup_logging(debug: bool) -> None:
     )
 
 
+def print_box(title: str, lines) -> None:
+    print()
+    print(LINE)
+    print(f"  {title}")
+    print()
+    for line in lines:
+        print(f"  {line}" if line else "")
+    print(LINE, flush=True)
+
+
+class PluginAnnouncer:
+    """
+    Skriver rutan LADDAR PLUGINS en gång, när HTTPS-adressen är klar
+    (eller direkt om det inte blir någon tunnel).
+    """
+
+    # Om tunneln aldrig blir klar visas rutan ändå efter så här många sekunder.
+    FALLBACK_SECONDS = 120
+
+    def __init__(self, plugins: PluginManager):
+        self.plugins = plugins
+        self._done = False
+        self._lock = threading.Lock()
+
+    def announce(self) -> None:
+        with self._lock:
+            if self._done:
+                return
+            self._done = True
+        print_box("LADDAR PLUGINS", self.plugins.summary())
+        self.plugins.log_failures()
+
+
 def announce_tunnel(info: ServerInfo, url: str) -> None:
     """Körs när HTTPS-adressen fungerar."""
     info.tunnel_url = url
     region_file = PROJECT_DIR / "regionInfo.json"
     region_file.write_text(region_info_json(info.config.server_name, url, 443), encoding="utf-8")
 
-    print(LINE, flush=True)
-    print("  HTTPS ÄR KLART!")
-    print()
-    print("  Öppna den här adressen på enheten som ska spela:")
-    print(f"      {url}")
-    print()
-    print("  Där finns en knapp som lägger till servern i Among Us.")
-    print(f"  (En färdig {region_file.name} har också sparats i projektmappen.)")
-    print()
-    print("  Obs: adressen byts varje gång servern startas om.")
-    print(LINE, flush=True)
+    print_box(
+        "HTTPS ÄR KLART!",
+        [
+            "Öppna den här adressen på enheten som ska spela:",
+            f"    {url}",
+            "",
+            "Där finns en knapp som lägger till servern i Among Us.",
+            f"(En färdig {region_file.name} har också sparats i projektmappen.)",
+            "",
+            "Obs: adressen byts varje gång servern startas om.",
+        ],
+    )
 
 
 async def run() -> None:
@@ -69,11 +104,12 @@ async def run() -> None:
         log.error("Kör servern redan i ett annat fönster? Stäng det först.")
         return
 
+    # Plugins laddas direkt, men vad som laddades visas först efter HTTPS-rutan.
     plugins = PluginManager()
+    plugins.enabled = config.plugins
     if config.plugins:
         plugins.load_all()
-    else:
-        log.info("Plugins är avstängda i config.json")
+    announcer = PluginAnnouncer(plugins)
 
     game = Game(config, lobbies, plugins)
     hazel = HazelServer(game.on_connect, game.on_message, game.on_disconnect, debug=config.debug)
@@ -101,7 +137,11 @@ async def run() -> None:
     if config.https_tunnel:
         binary = find_cloudflared(config.cloudflared_path)
         if binary:
-            tunnel = Tunnel(binary, config.port, lambda url: announce_tunnel(info, url))
+            def tunnel_ready(url: str) -> None:
+                announce_tunnel(info, url)
+                announcer.announce()
+
+            tunnel = Tunnel(binary, config.port, tunnel_ready)
             try:
                 tunnel.start()
             except OSError as error:
@@ -111,6 +151,11 @@ async def run() -> None:
             log.warning("cloudflared saknas, så det blir ingen HTTPS-adress.")
             log.warning("Among Us på andra enheter kan inte ansluta utan HTTPS.")
             log.warning("Fixa det: dubbelklicka på hamta-cloudflared.command och starta om servern.")
+
+    if tunnel is None:
+        announcer.announce()
+    else:
+        loop.call_later(PluginAnnouncer.FALLBACK_SECONDS, announcer.announce)
 
     plugins.fire("on_server_started")
     cleanup = asyncio.ensure_future(game.cleanup_loop())

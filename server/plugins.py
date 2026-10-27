@@ -28,7 +28,8 @@ import importlib.util
 import logging
 import re
 import sys
-from dataclasses import dataclass
+import traceback
+from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType
 from typing import Any, List
@@ -62,21 +63,42 @@ class LoadedPlugin:
     description: str
     path: Path
     module: ModuleType
+    version: str = ""
+    author: str = ""
+    warnings: List[str] = field(default_factory=list)
 
     def handles(self, event: str) -> bool:
         return callable(getattr(self.module, event, None))
+
+    def __str__(self) -> str:
+        text = self.name
+        if self.version:
+            text += f" {self.version}"
+        if self.author:
+            text += f" av {self.author}"
+        return text
+
+
+@dataclass
+class FailedPlugin:
+    file: str
+    error: str  # kort felmeddelande
+    details: str  # hela felet (traceback), för att kunna hitta vad som är fel
 
 
 class PluginManager:
     def __init__(self, folder: Path = PLUGIN_DIR):
         self.folder = folder
         self.plugins: List[LoadedPlugin] = []
+        self.failed: List[FailedPlugin] = []
+        self.enabled = True
 
     # --- Ladda -----------------------------------------------------------
 
     def load_all(self) -> None:
+        """Laddar alla plugins. Vad som laddades visas sedan med summary()."""
         if not self.folder.is_dir():
-            log.info("Ingen plugins-mapp hittades, kör utan plugins.")
+            log.debug("Ingen plugins-mapp hittades, kör utan plugins.")
             return
 
         for entry in sorted(self.folder.iterdir(), key=lambda p: p.name.lower()):
@@ -93,10 +115,6 @@ class PluginManager:
                         if not self._skip(file):
                             self._load(file)
 
-        if self.plugins:
-            log.info("%d plugin%s laddade", len(self.plugins), "s" if len(self.plugins) != 1 else "")
-        else:
-            log.info("Inga plugins är påslagna (se plugins/README.md)")
 
     @staticmethod
     def _skip(path: Path) -> bool:
@@ -116,14 +134,25 @@ class PluginManager:
             module = importlib.util.module_from_spec(spec)
             sys.modules[module_name] = module
             spec.loader.exec_module(module)
-        except Exception:
-            log.exception("Kunde inte ladda pluginet %s, hoppar över det", source.name)
+        except Exception as error:
             sys.modules.pop(module_name, None)
+            self.failed.append(
+                FailedPlugin(
+                    file=str(source.relative_to(self.folder)),
+                    error=f"{type(error).__name__}: {error}",
+                    details=traceback.format_exc(),
+                )
+            )
             return
 
-        name = str(getattr(module, "NAME", source.stem))
-        description = str(getattr(module, "DESCRIPTION", ""))
-        plugin = LoadedPlugin(name, description, source, module)
+        plugin = LoadedPlugin(
+            name=str(getattr(module, "NAME", source.stem)),
+            description=str(getattr(module, "DESCRIPTION", "")),
+            path=source,
+            module=module,
+            version=str(getattr(module, "VERSION", "")),
+            author=str(getattr(module, "AUTHOR", "")),
+        )
 
         events = [e for e in EVENTS if plugin.handles(e)]
         unknown = [
@@ -132,11 +161,41 @@ class PluginManager:
             if attr.startswith("on_") and attr not in EVENTS and callable(getattr(module, attr))
         ]
         self.plugins.append(plugin)
-        log.info("Laddade pluginet %s%s", name, f" ({description})" if description else "")
+        log.debug("Laddade pluginet %s från %s", plugin, source)
         if not events:
-            log.warning("Pluginet %s lyssnar inte på några händelser", name)
+            plugin.warnings.append("lyssnar inte på några händelser")
         for attr in unknown:
-            log.warning("Pluginet %s har funktionen %s, men det finns ingen sådan händelse", name, attr)
+            plugin.warnings.append(f"funktionen {attr} är ingen händelse som finns")
+
+    # --- Visa vad som laddades -------------------------------------------
+
+    def summary(self) -> List[str]:
+        """Raderna i rutan LADDAR PLUGINS som visas när servern har startat."""
+        if not self.enabled:
+            return ["Plugins är avstängda i config.json."]
+
+        count = len(self.plugins)
+        lines = [f"Laddat {count} plugin{'s' if count != 1 else ''}..."]
+        for plugin in self.plugins:
+            lines.append(f"  - {plugin}")
+            if plugin.description:
+                lines.append(f"      {plugin.description}")
+            for warning in plugin.warnings:
+                lines.append(f"      Obs: {warning}")
+        if count == 0:
+            lines.append("  Lägg plugins i mappen plugins/ (se plugins/README.md).")
+
+        if self.failed:
+            lines.append("")
+            lines.append(f"Kunde inte ladda {len(self.failed)} plugin{'s' if len(self.failed) != 1 else ''}:")
+            for failure in self.failed:
+                lines.append(f"  - {failure.file}: {failure.error}")
+            lines.append("  (hela felet står nedanför)")
+        return lines
+
+    def log_failures(self) -> None:
+        for failure in self.failed:
+            log.error("Fel i %s:\n%s", failure.file, failure.details.rstrip())
 
     # --- Anropa ----------------------------------------------------------
 

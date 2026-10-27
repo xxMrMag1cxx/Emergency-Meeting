@@ -37,6 +37,8 @@ Skapa en ny fil här, t.ex. `mitt_plugin.py`:
 
 ```python
 NAME = "Mitt plugin"
+VERSION = "1.0"
+AUTHOR = "Johannes"
 DESCRIPTION = "säger hej när spelet startar"
 
 
@@ -44,9 +46,22 @@ def on_game_started(lobby):
     lobby.send_chat("Lycka till alla! Lita inte på någon...")
 ```
 
-Spara, starta om servern, och kolla att det står
-`Laddade pluginet Mitt plugin` i serverfönstret. Om pluginet har ett fel
-skrivs felet ut, men servern fortsätter att fungera.
+`NAME`, `VERSION`, `AUTHOR` och `DESCRIPTION` är frivilliga men visas när
+servern startar. Spara, starta om servern, och kolla rutan
+**LADDAR PLUGINS** som kommer efter HTTPS-rutan:
+
+```
+================================================================
+  LADDAR PLUGINS
+
+  Laddat 1 plugin...
+    - Mitt plugin 1.0 av Johannes
+        säger hej när spelet startar
+================================================================
+```
+
+Om ett plugin inte går att ladda står det i rutan, och hela felet skrivs
+ut under den. Servern fortsätter att fungera ändå.
 
 Skriv till serverfönstret med `print(...)`, eller med en logger:
 
