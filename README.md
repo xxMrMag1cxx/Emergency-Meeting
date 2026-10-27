@@ -19,6 +19,9 @@ med egna plugins.
       dödsfall och röstning, och en sammanfattning när rundan är slut
       (behöver testas med riktiga spelet)
 - [x] **Steg 6:** Eget pluginsystem, se [plugins/README.md](plugins/README.md)
+- [x] **Steg 7:** Impostors kan döda (servern bestämmer, som Among Us egna
+      servrar). Bots går runt i lobbyn och på alla kartor och går till sina
+      uppdrag (behöver testas med riktiga spelet)
 
 ## Kom igång på Macen
 
@@ -105,6 +108,7 @@ Servern skriver ut vad som händer, till exempel:
 15:03:30  spel    Kalle gick med i NUORZH som spelare (2/10 spelare)
 15:03:41  spel    NUORZH chatt  Kalle: hej!
 15:05:02  spel    NUORZH: spelet startar! (4 spelare, The Skeld)
+15:05:31  bot     Bot_1 gjorde ett uppdrag (Fix Wiring) (1/4)
 15:06:10  spel    NUORZH: Bot_2 har dödats! (1 döda)
 15:06:30  spel    NUORZH: MÖTE! Blobi hittade Bot_2
 15:07:05  spel    NUORZH: Bot_1 röstades ut
@@ -116,6 +120,30 @@ Servern skriver ut vad som händer, till exempel:
 Under rundan skriver loggen inte ut vem som dödade någon eller vilka som är
 impostors, så att den som tittar på serverfönstret inte får veta det. Det
 kommer först i sammanfattningen när rundan är slut.
+
+## Dödande
+
+I Among Us är det servern, inte värden, som bestämmer om en impostor får
+döda. Spelet frågar servern ("CheckMurder"), servern kontrollerar att
+mördaren är en levande impostor, att offret lever och inte är impostor och
+att det inte pågår ett möte, och skickar sedan "MurderPlayer" till alla.
+Om en Guardian Angel har skyddat offret misslyckas mordet. Servern sköter
+också Phantoms "bli osynlig" och "synas igen" på samma sätt.
+
+## Bots som går
+
+Bots (från botpluginet) går runt i lobbyn och på kartan. Under en runda går
+de till sina uppdrag, står vid konsolen en stund och gör uppdraget. När
+allt är klart vandrar de mellan rummen. På möten står de vid bordet och
+röstar skip när diskussionstiden är slut.
+
+Kartorna finns i `server/kartdata/`: väggarna, var uppdragen görs och var
+spelarna börjar. Servern delar kartan i små rutor och letar upp en väg runt
+väggarna (se `server/navigation.py`). The Skeld, MIRA HQ, Polus, dlekS ehT
+och The Airship har riktiga väggar. På The Fungle finns bara en del av
+väggarna med, så där kan en bot ibland gå igenom ett träd eller en sten.
+På The Airship kan bots inte klättra på stegar eller åka plattformen, så de
+gör uppdragen som de kan gå till.
 
 Inställningarna har samma namn som i spelets meny. Om spelet får en ny
 inställning som servern inte känner till står det "Övriga inställningar".
@@ -166,11 +194,13 @@ server/
   options.py     läser spelinställningarna och visar vad som ändrats
   plugins.py     laddar plugins och anropar dem när något händer
   bots.py        bots: låtsasspelare som servern styr
+  navigation.py  hittar vägar runt väggarna åt bots
+  kartdata/      kartorna: väggar, uppdrag, rum och startplatser
   blackbox.py    "svart låda": sparar vad som hände om någon kopplas från
-plugins/         plugins som servern laddar (se plugins/README.md)
   gamecode.py    spelkoder ("ABCDEF") och talen spelet skickar
   messages.py    läsa och skriva bytes
   protocol.py    alla siffror och namn som Among Us använder
+plugins/         plugins som servern laddar (se plugins/README.md)
 tools/
   testklient.py  två låtsas-Among Us som testar servern (skapa, gå med,
                  byta färg, ändra inställningar, chatta, lämna)
@@ -233,3 +263,7 @@ som håller koll på vem som är med i vilket spel.
 Protokollet är kartlagt med hjälp av det öppna projektet
 [Impostor](https://github.com/Impostor/Impostor), som vi använder som
 referens. Ingen kod är kopierad därifrån.
+
+Kartdatan i `server/kartdata/` kommer från andra öppna projekt, se
+[server/kartdata/README.md](server/kartdata/README.md). De projekten har
+licensen GPL-3.0, och kartdatan har samma licens.

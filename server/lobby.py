@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 from . import gamecode, protocol
 from .hazel import Connection
@@ -180,6 +180,9 @@ class RoundInfo:
     meetings: int = 0
     tasks_done: Dict[int, int] = field(default_factory=dict)
     started_at: float = field(default_factory=time.monotonic)
+    dead: Set[int] = field(default_factory=set)  # döda gubbars objektnummer
+    protected: Dict[int, float] = field(default_factory=dict)  # gubbe -> när en Guardian Angel skyddade den
+    in_meeting: bool = False
 
 
 # --- Lobbyn --------------------------------------------------------------
@@ -214,6 +217,9 @@ class Lobby:
         self.colors: Dict[int, int] = {}
         # Gubbens objektnummer -> spelarnummer i spelet (0, 1, 2 ...).
         self.control_player_ids: Dict[int, int] = {}
+        # Gubbens objektnummer -> (rörelseobjektets nummer, sekvensnummer, position)
+        # som värden skapade gubben med. Bots behöver veta var de står.
+        self.transforms: Dict[int, Tuple[int, int, Tuple[float, float]]] = {}
         self.meeting_hud_net_id: Optional[int] = None
         # Vad som händer under rundan (roller, dödsfall, möten ...).
         self.round = RoundInfo()
@@ -228,6 +234,27 @@ class Lobby:
     @property
     def host_name(self) -> str:
         return self.host.name if self.host else "Ingen värd"
+
+    @property
+    def host_authority(self) -> bool:
+        """True om värden har ett mod som själv bestämmer över dödande (version +25)."""
+        host = self.host
+        hs = host.connection.handshake if host is not None else None
+        return hs is not None and hs.game_version % 50 >= protocol.HOST_AUTHORITY_REVISION
+
+    def setting_number(self, name: str, default: float) -> float:
+        """En inställning som tal, t.ex. "Discussion Time" -> 15.0."""
+        text = self.options.settings.get(name, "")
+        number = ""
+        for char in text:
+            if char.isdigit() or char in ".-":
+                number += char
+            else:
+                break
+        try:
+            return float(number)
+        except ValueError:
+            return default
 
     # --- För plugins -----------------------------------------------------
 
@@ -261,15 +288,16 @@ class Lobby:
         """Alla bots i lobbyn, i den ordning de lades till."""
         return [p for p in self.players.values() if p.is_bot]
 
-    def add_bot(self, name: str, do_tasks: bool = False) -> Optional[Player]:
+    def add_bot(self, name: str, do_tasks: bool = False, walk: bool = True) -> Optional[Player]:
         """
         Lägger till en bot med namnet `name`. Returnerar boten, eller None
         om det inte gick (lobbyn är full, en runda pågår, eller ingen värd).
         Med do_tasks=True gör boten sina uppdrag och röstar skip under rundan.
+        Med walk=False står boten still i stället för att gå runt.
         """
         if self.server is None:
             return None
-        return self.server.add_bot(self, name, do_tasks)
+        return self.server.add_bot(self, name, do_tasks, walk)
 
     def remove_bot(self, bot: Optional[Player] = None) -> bool:
         """Tar bort en bot (den senast tillagda om ingen anges). False om det inte fanns någon."""

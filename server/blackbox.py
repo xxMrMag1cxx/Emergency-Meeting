@@ -27,8 +27,10 @@ RPC_NAMES = {
     19: "EnterVent", 20: "ExitVent", 21: "SnapTo", 22: "CloseMeeting", 23: "VotingComplete",
     24: "CastVote", 25: "ClearVote", 26: "AddVote", 27: "CloseDoorsOfType", 29: "SetTasks",
     33: "SendQuickChat", 35: "UpdateSystem", 38: "SetLevel", 39: "SetHat", 40: "SetSkin",
-    41: "SetPet", 42: "SetVisor", 43: "SetNamePlate", 44: "SetRole", 47: "CheckMurder",
-    49: "Pet", 50: "CancelPet", 60: "LobbyTimeExpiring", 61: "ExtendLobbyTimer",
+    41: "SetPet", 42: "SetVisor", 43: "SetNamePlate", 44: "SetRole", 45: "ProtectPlayer",
+    46: "Shapeshift", 47: "CheckMurder", 48: "CheckProtect", 16: "SendChatNote",
+    49: "Pet", 50: "CancelPet", 55: "CheckShapeshift", 60: "LobbyTimeExpiring", 61: "ExtendLobbyTimer",
+    62: "CheckVanish", 63: "StartVanish", 64: "CheckAppear", 65: "StartAppear",
 }
 
 

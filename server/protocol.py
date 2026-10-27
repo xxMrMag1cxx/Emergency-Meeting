@@ -236,8 +236,25 @@ EMPTY_COSMETICS = {
     "nameplate": "nameplate_NoPlate",
 }
 RPC_SET_ROLE = 44
+RPC_SNAP_TO = 21  # flytta en gubbe direkt till en plats
+RPC_CLOSE_MEETING = 22
+RPC_PROTECT_PLAYER = 45  # Guardian Angel skyddar någon
+RPC_CHECK_MURDER = 47  # "får jag döda den här?" (till servern)
+RPC_CHECK_VANISH = 62  # Phantom vill bli osynlig
+RPC_START_VANISH = 63
+RPC_CHECK_APPEAR = 64  # Phantom vill synas igen
+RPC_START_APPEAR = 65
 
 MURDER_SUCCEEDED = 1
+MURDER_FAILED_PROTECTED = 4  # offret var skyddat av en Guardian Angel
+
+# Roller som får döda (inte impostor-spöken).
+KILLER_ROLES = {1, 5, 9, 18}
+PHANTOM = 9
+
+# I spelversionen betyder revision 25 eller mer att värden har ett mod och
+# själv bestämmer över dödande ("host authority"). Då skickar vi bara vidare.
+HOST_AUTHORITY_REVISION = 25
 
 # Specialvärden i röstningen
 VOTE_SKIP = 253

@@ -17,7 +17,10 @@ Taggen säger vad det är för sorts meddelande, t.ex. 0 = "skapa spel".
 from __future__ import annotations
 
 import struct
-from typing import Iterator, List, Optional
+from typing import Iterator, List, Optional, Tuple
+
+# Positioner skickas som två tal mellan 0 och 65535 som betyder -50 till 50.
+VECTOR_RANGE = 50.0
 
 
 class MessageReader:
@@ -84,6 +87,12 @@ class MessageReader:
         """Som read_packed_uint32, men kan bli negativt (t.ex. -4)."""
         value = self.read_packed_uint32() & 0xFFFFFFFF
         return value - (1 << 32) if value >= (1 << 31) else value
+
+    def read_vector2(self) -> Tuple[float, float]:
+        """En position på kartan: två tal 0-65535 som betyder -50 till 50."""
+        x = self.read_uint16() / 65535.0
+        y = self.read_uint16() / 65535.0
+        return (-VECTOR_RANGE + 2 * VECTOR_RANGE * x, -VECTOR_RANGE + 2 * VECTOR_RANGE * y)
 
     def read_string(self) -> str:
         length = self.read_packed_uint32()
@@ -154,6 +163,12 @@ class MessageWriter:
         self.start_message(message.tag or 0)
         self.write_bytes(message.data)
         return self.end_message()
+
+    def write_vector2(self, x: float, y: float) -> "MessageWriter":
+        for value in (x, y):
+            t = min(1.0, max(0.0, (value + VECTOR_RANGE) / (2 * VECTOR_RANGE)))
+            self.write_uint16(int(t * 65535))
+        return self
 
     def write_string(self, text: str) -> "MessageWriter":
         encoded = text.encode("utf-8")

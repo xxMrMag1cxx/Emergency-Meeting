@@ -113,6 +113,7 @@ Ett plugin lyssnar på en händelse genom att ha en funktion med samma namn.
 | `lobby.bots` | Lista med alla bots i lobbyn |
 | `lobby.add_bot("Bot_1")` | Lägger till en bot. Ger tillbaka boten, eller `None` om det inte gick |
 | `lobby.add_bot("Bot_1", do_tasks=True)` | Samma, men boten gör uppdrag och röstar skip under rundan |
+| `lobby.add_bot("Bot_1", walk=False)` | En bot som står still i stället för att gå runt |
 | `lobby.remove_bot(bot)` | Tar bort en bot (den senaste om ingen anges) |
 
 **`player`** (en spelare):
@@ -134,7 +135,12 @@ eftersom Among Us inte har något sätt att visa meddelanden "från servern".
 
 En bot är en låtsasspelare som servern styr. För de andra ser den ut som en
 vanlig spelare: den går med, får namn och färg av värden och säger "redo"
-när en runda startar. Med `do_tasks=True` gör den också sina uppdrag (om den
-inte är impostor) och röstar skip på möten. Den står still, kan inte döda
-eller rapportera, och kan aldrig bli värd. Bots kan bara läggas till i
-lobbyn, inte under en runda.
+när en runda startar.
+
+Boten går runt i lobbyn och på kartan, runt väggarna. Med `do_tasks=True`
+går den till sina uppdrag och gör dem på plats, och röstar skip på möten
+när diskussionstiden är slut. Impostor-bots låtsas göra uppdrag. Under ett
+möte står boten still vid bordet. Den kan inte döda eller rapportera och kan
+aldrig bli värd. Bots kan bara läggas till i lobbyn, inte under en runda.
+
+Kartorna (väggar och var uppdragen finns) ligger i `server/kartdata/`.

@@ -279,7 +279,9 @@ class Game:
         lobby.server_objects.clear()
         lobby.player_controls.clear()
         lobby.control_player_ids.clear()
+        lobby.transforms.clear()
         lobby.meeting_hud_net_id = None
+        lobby.round.in_meeting = False
         self.plugins.fire("on_game_ended", lobby, result)
 
     def _log_round_summary(self, lobby: Lobby, result: str) -> None:
@@ -447,6 +449,9 @@ class Game:
             net_id = part.read_packed_uint32()
             lobby.server_objects.pop(net_id, None)
             lobby.player_controls.pop(net_id, None)
+            lobby.transforms.pop(net_id, None)
+            if net_id == lobby.meeting_hud_net_id:
+                lobby.round.in_meeting = False
         return None
 
     # --- Saker som händer i lobbyn: inställningar, färger, chatt ---------
@@ -456,10 +461,12 @@ class Game:
         spawn_type = part.read_packed_uint32()
         owner = part.read_packed_int32()
         part.read_byte()  # flaggor
-        if part.read_packed_uint32() < 1:
+        components = []  # (objektnummer, data) för varje del av objektet
+        for _ in range(part.read_packed_uint32()):
+            components.append((part.read_packed_uint32(), part.read_message()))
+        if not components:
             return
-        net_id = part.read_packed_uint32()
-        data = part.read_message()
+        net_id, data = components[0]
 
         if spawn_type == protocol.SPAWN_PLAYER_CONTROL:
             # Värden skickar ALLA gubbar igen till varje ny spelare som går med.
@@ -469,6 +476,11 @@ class Game:
             try:
                 data.read_bool()  # "är ny"
                 lobby.control_player_ids[net_id] = data.read_byte()
+                if is_new and len(components) >= 3:
+                    # Del 3 är rörelserna: sekvensnummer och var gubben står.
+                    transform_id, transform = components[2]
+                    sequence = transform.read_uint16()
+                    lobby.transforms[net_id] = (transform_id, sequence, transform.read_vector2())
             except ValueError:
                 pass
             spawned = lobby.players.get(owner)
@@ -561,15 +573,50 @@ class Game:
             if target is not None:
                 lobby.round.roles[target.client_id] = role
 
+        elif call == protocol.RPC_CHECK_MURDER:
+            # Spelet frågar SERVERN om en impostor får döda. Servern bestämmer
+            # och skickar MurderPlayer till alla (så gör Among Us egna servrar).
+            if lobby.host_authority:
+                return None  # värden har ett mod och bestämmer själv
+            target_net_id = part.read_packed_uint32()
+            later(lambda: self._server_murder(lobby, player, net_id, target_net_id))
+            return False
+
+        elif call == protocol.RPC_CHECK_VANISH:
+            if lobby.host_authority:
+                return None
+            later(lambda: self._server_phantom(lobby, player, net_id, protocol.RPC_START_VANISH, b""))
+            return False
+
+        elif call == protocol.RPC_CHECK_APPEAR:
+            if lobby.host_authority:
+                return None
+            animate = MessageWriter().write_bool(part.read_bool()).to_bytes()
+            later(lambda: self._server_phantom(lobby, player, net_id, protocol.RPC_START_APPEAR, animate))
+            return False
+
+        elif call == protocol.RPC_PROTECT_PLAYER:
+            lobby.round.protected[part.read_packed_uint32()] = time.monotonic()
+
         elif call == protocol.RPC_MURDER_PLAYER:
             killer = lobby.player_by_control(net_id)
-            victim = lobby.player_by_control(part.read_packed_uint32())
+            victim_net_id = part.read_packed_uint32()
+            victim = lobby.player_by_control(victim_net_id)
             result = part.read_int32()
             if result & protocol.MURDER_SUCCEEDED and victim is not None:
+                lobby.round.dead.add(victim_net_id)
                 lobby.round.deaths.append((victim.name, killer.name if killer else "?"))
                 # Vem som dödade skrivs inte ut nu, då skulle loggen avslöja impostorn.
                 log.info("%s: %s har dödats! (%d döda)", lobby.code, victim.name, len(lobby.round.deaths))
                 later(lambda: fire("on_player_killed", lobby, killer, victim))
+            elif result & protocol.MURDER_FAILED_PROTECTED and victim is not None:
+                log.info("%s: någon försökte döda %s, men en Guardian Angel skyddade", lobby.code, victim.name)
+
+        elif call == protocol.RPC_EXILED:
+            lobby.round.dead.add(net_id)
+
+        elif call == protocol.RPC_CLOSE_MEETING:
+            lobby.round.in_meeting = False
 
         elif call == protocol.RPC_START_MEETING:
             reporter = lobby.player_by_control(net_id)
@@ -577,6 +624,7 @@ class Game:
             body = lobby.player_by_player_id(body_id) if body_id != protocol.NO_PLAYER else None
             who = reporter.name if reporter else "Någon"
             lobby.round.meetings += 1
+            lobby.round.in_meeting = True
             if body is None:
                 log.info("%s: MÖTE! %s tryckte på nödknappen", lobby.code, who)
             else:
@@ -629,6 +677,64 @@ class Game:
         self._run_after_forward()
 
     # =====================================================================
+    # Saker som servern bestämmer: dödande och Phantom
+    # =====================================================================
+
+    def _server_murder(self, lobby: Lobby, sender: Player, killer_net_id: int, victim_net_id: int) -> None:
+        """
+        En impostor har tryckt på "Kill". Among Us låter servern (inte värden)
+        kontrollera att det är okej, och sedan berätta för alla att någon dog.
+        """
+        killer = lobby.player_by_control(killer_net_id)
+        victim = lobby.player_by_control(victim_net_id)
+        r = lobby.round
+        if killer is None or victim is None or lobby.state != GameState.STARTED:
+            return
+        if killer.client_id != sender.client_id:
+            log.warning("%s försökte döda med någon annans gubbe, ignoreras", sender.name)
+            return
+        if killer_net_id in r.dead or victim_net_id in r.dead or r.in_meeting:
+            return  # t.ex. om man trycker på Kill flera gånger snabbt
+        role = r.roles.get(killer.client_id)
+        if role in protocol.ROLES and role not in protocol.KILLER_ROLES:
+            # (En roll vi inte känner till, t.ex. från en ny spelversion, får döda.)
+            log.warning("%s försökte döda men är inte impostor, ignoreras", sender.name)
+            return
+        if r.roles.get(victim.client_id) in protocol.IMPOSTOR_ROLES:
+            return  # impostors kan inte döda varandra
+
+        result = protocol.MURDER_SUCCEEDED
+        protected_at = r.protected.pop(victim_net_id, None)
+        duration = lobby.setting_number("Guardian Angel: Protection Duration", 10.0)
+        if protected_at is not None and time.monotonic() - protected_at <= duration:
+            result = protocol.MURDER_FAILED_PROTECTED
+
+        args = MessageWriter().write_packed_uint32(victim_net_id).write_int32(result).to_bytes()
+        self._server_rpc(lobby, sender, killer_net_id, protocol.RPC_MURDER_PLAYER, args)
+
+    def _server_phantom(self, lobby: Lobby, sender: Player, net_id: int, call: int, args: bytes) -> None:
+        """En Phantom vill bli osynlig eller synas igen. Servern säger ja."""
+        owner = lobby.player_by_control(net_id)
+        if owner is None or owner.client_id != sender.client_id or lobby.state != GameState.STARTED:
+            return
+        if lobby.round.roles.get(owner.client_id) != protocol.PHANTOM:
+            return
+        self._server_rpc(lobby, sender, net_id, call, args)
+
+    def _server_rpc(self, lobby: Lobby, sender: Player, net_id: int, call: int, args: bytes) -> None:
+        """Skickar ett RPC från servern till ALLA i spelet (även den som frågade)."""
+        rpc = MessageWriter().start_message(protocol.GameDataTag.RPC)
+        rpc.write_packed_uint32(net_id).write_byte(call).write_bytes(args).end_message()
+        rpc_bytes = rpc.to_bytes()
+        # Låt servern själv titta på det (loggen, plugins och bots), som om det kom från spelet.
+        part = MessageReader(rpc_bytes).read_message()
+        self._inspect_rpc(lobby, sender, part)
+        w = MessageWriter().start_message(protocol.GAME_DATA).write_int32(lobby.code_int)
+        w.write_bytes(rpc_bytes).end_message()
+        lobby.send_to_all(w.to_bytes())
+        self._run_after_forward()
+
+    # =====================================================================
     # Lämna spel och byta värd
     # =====================================================================
 
@@ -648,7 +754,7 @@ class Game:
         if not any(not p.is_bot for p in lobby.players.values()):
             # Bara bots (eller ingen alls) kvar: stäng spelet.
             for bot in list(lobby.players.values()):
-                bot.connection.connected = False
+                bot.connection.close()
                 bot.connection.player = None
             lobby.players.clear()
             log.info("%s är tomt och har tagits bort", lobby.code)
@@ -697,7 +803,7 @@ class Game:
     # Bots
     # =====================================================================
 
-    def add_bot(self, lobby: Lobby, name: str, do_tasks: bool = False) -> Optional[Player]:
+    def add_bot(self, lobby: Lobby, name: str, do_tasks: bool = False, walk: bool = True) -> Optional[Player]:
         host = lobby.host
         if host is None or lobby.state != GameState.NOT_STARTED:
             return None
@@ -709,7 +815,7 @@ class Game:
         version = host.connection.handshake.game_version if host.connection.handshake else 0
 
         self._next_client_id += 1
-        bot = BotConnection(self, self._next_client_id, name, version, color, do_tasks)
+        bot = BotConnection(self, self._next_client_id, name, version, color, do_tasks, walk)
         bot.join(lobby.code_int)
         player = self._player(bot)  # type: ignore[arg-type]
         if player is None:
