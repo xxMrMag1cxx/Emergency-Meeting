@@ -200,10 +200,27 @@ class BotConnection:
         color = MessageWriter().start_message(protocol.GameDataTag.RPC)
         color.write_packed_uint32(net_id).write_byte(RPC_CHECK_COLOR).write_byte(self.color).end_message()
         self._game_data(name.to_bytes(), color.to_bytes(), to=lobby.host_id)
+        # Som ett riktigt spel: berätta nivå och kläder för alla. Utan kläder
+        # blir boten en "grön böna" med ofullständig spelarinfo, och det kan
+        # få värdens spel att krångla.
+        parts = []
         level = MessageWriter().start_message(protocol.GameDataTag.RPC)
         level.write_packed_uint32(net_id).write_byte(protocol.RPC_SET_LEVEL).write_packed_uint32(0).end_message()
-        self._game_data(level.to_bytes())
-        log.debug("%s bad värden om namn och färg", self.name)
+        parts.append(level.to_bytes())
+        for kind, item in self._outfit(lobby).items():
+            rpc = MessageWriter().start_message(protocol.GameDataTag.RPC)
+            rpc.write_packed_uint32(net_id).write_byte(protocol.COSMETIC_RPCS[kind])
+            rpc.write_string(item).write_byte(5).end_message()  # 5 = ny version av plagget
+            parts.append(rpc.to_bytes())
+        self._game_data(*parts)
+        log.debug("%s bad värden om namn och färg och tog på sig kläder", self.name)
+
+    @staticmethod
+    def _outfit(lobby) -> dict:
+        outfit = dict(protocol.EMPTY_COSMETICS)
+        if getattr(lobby, "known_nameplate", ""):
+            outfit["nameplate"] = lobby.known_nameplate  # en namnskylt vi vet att spelet känner till
+        return outfit
 
     # --- Spela en runda ---------------------------------------------------
 

@@ -25,6 +25,7 @@ import logging
 import socket
 import struct
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
@@ -243,6 +244,7 @@ class MatchmakerHandler(BaseHTTPRequestHandler):
             body = body or {}
             username = body.get("Username", "?")
             log.info("Spelare '%s' hämtade en token (steg 1 av anslutningen, %s)", username, self._who())
+            self.info.lobbies.waiting_for_udp[username] = (time.monotonic(), self._who())
             token = {
                 "Content": {
                     "Puid": body.get("Puid", ""),

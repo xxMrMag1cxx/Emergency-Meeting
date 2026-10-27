@@ -214,6 +214,7 @@ RPC_COMPLETE_TASK = 1
 RPC_EXILED = 4
 RPC_CHECK_NAME = 5
 RPC_CHECK_COLOR = 7
+RPC_SET_NAME = 6
 RPC_SET_COLOR = 8
 RPC_MURDER_PLAYER = 12
 RPC_SEND_CHAT = 13
@@ -222,6 +223,18 @@ RPC_VOTING_COMPLETE = 23
 RPC_CAST_VOTE = 24
 RPC_SET_TASKS = 29
 RPC_SET_LEVEL = 38
+# Kläder: hatt, dräkt, husdjur, visir, namnskylt
+RPC_COSMETICS = {39: "hat", 40: "skin", 41: "pet", 42: "visor", 43: "nameplate"}
+COSMETIC_RPCS = {name: call for call, name in RPC_COSMETICS.items()}
+
+# "Inga kläder" i spelet (som en ny spelare utan något valt).
+EMPTY_COSMETICS = {
+    "hat": "hat_EmptyHat",
+    "skin": "skin_EmptySkin",
+    "pet": "pet_EmptyPet",
+    "visor": "visor_EmptyVisor",
+    "nameplate": "nameplate_NoPlate",
+}
 RPC_SET_ROLE = 44
 
 MURDER_SUCCEEDED = 1

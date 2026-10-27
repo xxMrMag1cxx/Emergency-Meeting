@@ -64,16 +64,34 @@ def describe(payload: bytes) -> str:
 
 
 class FlightRecorder:
-    def __init__(self, size: int = 120):
+    def __init__(self, size: int = 500):
         self.events: Deque[str] = deque(maxlen=size)
         self.started = time.monotonic()
+        self.unreliable_in = 0
+        self.unreliable_out = 0
+        self.last_in = time.monotonic()
+        self.last_ack_out = time.monotonic()
 
-    def note(self, direction: str, payload: bytes) -> None:
-        stamp = time.strftime("%H:%M:%S")
-        self.events.append(f"{stamp}  {direction}  {describe(payload)}")
+    @staticmethod
+    def _stamp() -> str:
+        now = time.time()
+        return time.strftime("%H:%M:%S", time.localtime(now)) + f".{int(now * 10) % 10}"
+
+    def _flush_counts(self) -> None:
+        if self.unreliable_in or self.unreliable_out:
+            self.events.append(
+                f"{self._stamp()}  ..  osäkra paket (t.ex. rörelser): {self.unreliable_in} in, {self.unreliable_out} ut"
+            )
+            self.unreliable_in = self.unreliable_out = 0
+
+    def note(self, direction: str, payload: bytes, packet_id: Optional[int] = None) -> None:
+        self._flush_counts()
+        number = f"#{packet_id} " if packet_id is not None else ""
+        self.events.append(f"{self._stamp()}  {direction}  {number}{describe(payload)}")
 
     def note_text(self, direction: str, text: str) -> None:
-        self.events.append(f"{time.strftime('%H:%M:%S')}  {direction}  {text}")
+        self._flush_counts()
+        self.events.append(f"{self._stamp()}  {direction}  {text}")
 
     def save(self, name: str, why: str, lobby: Optional[str]) -> Optional[Path]:
         try:
@@ -85,6 +103,8 @@ class FlightRecorder:
                 f"Lobby: {lobby or '-'}",
                 f"Anledning: {why}",
                 f"Ansluten i {int(time.monotonic() - self.started)} sekunder",
+                f"Senaste paket från spelet: {time.monotonic() - self.last_in:.1f} s före frånkopplingen",
+                f"Senaste kvitto från servern: {time.monotonic() - self.last_ack_out:.1f} s före frånkopplingen",
                 "",
                 "Senaste meddelandena (in = från spelet, ut = från servern):",
                 "",

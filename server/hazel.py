@@ -87,9 +87,11 @@ class Connection:
         self.server.send_raw(
             bytes([protocol.ACK, packet_id >> 8, packet_id & 0xFF, recent]), self.address
         )
+        self.recorder.last_ack_out = time.monotonic()
 
     def handle_ack(self, packet_id: int, recent: Optional[int]) -> None:
-        self._pending.pop(packet_id, None)
+        if self._pending.pop(packet_id, None) is not None:
+            self.recorder.note_text("in", f"kvitto för vårt paket #{packet_id}")
         if recent is not None:
             for i in range(1, 9):
                 if recent & (1 << (i - 1)):
@@ -102,10 +104,11 @@ class Connection:
         self._next_id = (self._next_id + 1) & 0xFFFF
         packet = bytes([protocol.RELIABLE, packet_id >> 8, packet_id & 0xFF]) + payload
         self._pending[packet_id] = [packet, time.monotonic(), 0]
-        self.recorder.note("ut", payload)
+        self.recorder.note("ut", payload, packet_id)
         self.server.send_raw(packet, self.address)
 
     def send_unreliable(self, payload: bytes) -> None:
+        self.recorder.unreliable_out += 1
         self.server.send_raw(bytes([protocol.UNRELIABLE]) + payload, self.address)
 
     def disconnect(self, reason: int = protocol.DisconnectReason.EXIT_GAME, message: str = "") -> None:
@@ -139,6 +142,7 @@ class Connection:
                 continue
             entry[1] = now
             entry[2] = tries + 1
+            self.recorder.note_text("ut", f"skickar om paket #{packet_id} (försök {tries + 1})")
             self.server.send_raw(packet, self.address)
 
 
@@ -196,22 +200,27 @@ class HazelServer(asyncio.DatagramProtocol):
             return
 
         connection.last_seen = time.monotonic()
+        connection.recorder.last_in = connection.last_seen
 
         if kind == protocol.RELIABLE and len(data) >= 3:
             packet_id = (data[1] << 8) | data[2]
             is_new = connection.remember_id(packet_id)
             connection.send_ack(packet_id)
             if is_new:
-                connection.recorder.note("in", data[3:])
+                connection.recorder.note("in", data[3:], packet_id)
                 self._dispatch(connection, data[3:], reliable=True)
+            else:
+                connection.recorder.note_text("in", f"#{packet_id} igen (spelet skickade om, nytt kvitto skickat)")
 
         elif kind == protocol.UNRELIABLE:
+            connection.recorder.unreliable_in += 1
             self._dispatch(connection, data[1:], reliable=False)
 
         elif kind == protocol.PING and len(data) >= 3:
             packet_id = (data[1] << 8) | data[2]
             connection.remember_id(packet_id)
             connection.send_ack(packet_id)
+            connection.recorder.note_text("in", f"ping #{packet_id} -> kvitto skickat")
 
         elif kind == protocol.ACK and len(data) >= 3:
             packet_id = (data[1] << 8) | data[2]

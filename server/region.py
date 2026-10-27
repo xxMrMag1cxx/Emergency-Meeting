@@ -14,7 +14,7 @@ Båda pekar på serverns HTTP-adress, t.ex.
 from __future__ import annotations
 
 import json
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 
 def region_info_json(server_name: str, url: str, port: int) -> str:
@@ -48,6 +48,7 @@ def app_link(server_name: str, url: str, port: int) -> str:
             "serverport": str(port),
             "serverip": url,
             "usedtls": "false",
-        }
+        },
+        quote_via=quote,  # mellanslag blir %20, inte + (annars heter servern "Emergency+Meeting")
     )
     return f"amongus://init?{params}"

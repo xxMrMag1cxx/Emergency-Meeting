@@ -209,6 +209,10 @@ som håller koll på vem som är med i vilket spel.
 - **"försökte ansluta med HTTPS direkt till port 22023"** i loggen: spelet är
   inställt på Macens IP-adress i stället för HTTPS-adressen. Lägg till servern
   igen via HTTPS-adressen.
+- **"nådde servern via HTTPS men anslöt aldrig till spelet via UDP"** i loggen:
+  enheten kommer åt servern via internet men inte direkt till Macen. På
+  iPhone: Inställningar → Integritet och säkerhet → Lokalt nätverk → slå på
+  Among Us. Kolla också att enheten är på samma wifi.
 - **Token hämtas men inget mer händer**: spelet når HTTPS-delen men inte UDP.
   Kolla att enheten är på samma wifi och att brandväggen tillåter Python
   (Systeminställningar → Säkerhet och integritet → Brandvägg).

@@ -58,6 +58,7 @@ class Game:
         if hs is None:
             log.info("En spelare anslöt från %s (kunde inte läsa detaljerna)", connection.address[0])
             return
+        self.lobbies.waiting_for_udp.pop(hs.name, None)
         log.info(
             "%s anslöt (spelversion %s, %s)",
             hs.name,
@@ -274,6 +275,7 @@ class Game:
         for p in lobby.players.values():
             p.limbo = Limbo.PRE_SPAWN
         # Spelarinfo och gubbar skapas på nytt när alla kommer tillbaka till lobbyn.
+        lobby.previous_infos = {obj.client_id: obj for obj in lobby.server_objects.values()}
         lobby.server_objects.clear()
         lobby.player_controls.clear()
         lobby.control_player_ids.clear()
@@ -431,7 +433,10 @@ class Game:
             net_id = part.read_packed_uint32()
             obj = lobby.server_objects.get(net_id)
             if obj is not None:
-                obj.state = part.read_rest()  # spara senaste namn, färg osv.
+                try:
+                    obj.update_from_data(part)  # spara senaste namn, färg osv.
+                except ValueError:
+                    pass
             elif net_id == lobby.game_manager_net_id:
                 self._inspect_game_manager(lobby, player, part)
 
@@ -514,11 +519,35 @@ class Game:
                 return False
             log.info("%s chatt  %s: %s", lobby.code, player.name, text)
 
+        elif call == protocol.RPC_SET_NAME:
+            info = lobby.server_objects.get(part.read_uint32()) or lobby.info_for_control(net_id)
+            name = part.read_string()
+            if info is not None:
+                info.name = name
+
+        elif call in protocol.RPC_COSMETICS:
+            info = lobby.info_for_control(net_id)
+            item = part.read_string()
+            sequence = part.read_byte()
+            if info is not None:
+                kind = protocol.RPC_COSMETICS[call]
+                info.cosmetics[kind] = item
+                info.sequence[kind] = sequence
+                if kind == "nameplate" and item:
+                    lobby.known_nameplate = item
+
+        elif call == protocol.RPC_SET_LEVEL:
+            info = lobby.info_for_control(net_id)
+            if info is not None:
+                info.level = part.read_packed_uint32()
+
         elif call == protocol.RPC_SET_COLOR:
             info_net_id = part.read_uint32()
             color = part.read_byte()
             # Färgen gäller spelarinfon med det numret (säkrast), annars gubbens ägare.
-            info = lobby.server_objects.get(info_net_id)
+            info = lobby.server_objects.get(info_net_id) or lobby.info_for_control(net_id)
+            if info is not None:
+                info.color = color
             owner = info.client_id if info is not None else lobby.player_controls.get(net_id)
             target = lobby.players.get(owner) if owner is not None else None
             if target is not None and lobby.colors.get(target.client_id) != color:
@@ -648,6 +677,22 @@ class Game:
             self._join_lobby(lobby, new_host)
             self._let_waiting_players_in(lobby)
 
+    def _warn_about_missing_udp(self) -> None:
+        """Om någon hämtat en token men aldrig anslutit: säg till, det är ett vanligt fel."""
+        now = time.monotonic()
+        for name, (when, who) in list(self.lobbies.waiting_for_udp.items()):
+            if now - when > 10:
+                del self.lobbies.waiting_for_udp[name]
+                log.warning(
+                    "%s (%s) nådde servern via HTTPS men anslöt aldrig till spelet via UDP.",
+                    name,
+                    who,
+                )
+                log.warning(
+                    "  Kolla att enheten är på samma wifi som Macen. På iPhone: "
+                    "Inställningar > Integritet och säkerhet > Lokalt nätverk > slå på Among Us."
+                )
+
     # =====================================================================
     # Bots
     # =====================================================================
@@ -675,7 +720,8 @@ class Game:
         """Tar bort spel som skapades men där ingen gick med."""
         loop = asyncio.get_event_loop()
         while True:
-            await asyncio.sleep(10)
+            await asyncio.sleep(5)
+            self._warn_about_missing_udp()
             for lobby in self.lobbies.all():
                 if not lobby.players and loop.time() - lobby.created_at > EMPTY_LOBBY_TIMEOUT:
                     log.debug("Tar bort tomma spelet %s", lobby.code)

@@ -17,7 +17,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 from . import gamecode, protocol
 from .hazel import Connection
-from .messages import MessageWriter
+from .messages import MessageReader, MessageWriter
 from .options import GameOptions
 
 log = logging.getLogger("lobby")
@@ -102,38 +102,72 @@ class Player:
         self.connection.disconnect(protocol.DisconnectReason.CUSTOM, message)
 
 
+COSMETICS = ("hat", "pet", "skin", "visor", "nameplate")
+
+
 @dataclass
 class PlayerInfoObject:
     """
     Ett "spelarinfo"-objekt som servern äger. Där sparar spelet namn,
-    färg, hatt, roll med mera. Värden ändrar innehållet, servern skapar det.
+    färg, hatt, nivå med mera.
+
+    Servern skapar objektet och håller det uppdaterat när värden byter namn
+    eller färg och när spelaren byter hatt osv. Annars skulle spelare som går
+    med senare se de andra som "gröna bönor" utan namn, färg och kläder,
+    och det får spelet att krångla.
     """
 
     net_id: int
     client_id: int
     player_id: int
-    state: bytes = b""  # senaste innehållet, för nya spelare som går med
+    name: str = ""
+    color: int = 0
+    cosmetics: Dict[str, str] = field(default_factory=lambda: {c: "missing" for c in COSMETICS})
+    sequence: Dict[str, int] = field(default_factory=lambda: {c: 0 for c in COSMETICS})
+    level: int = 0
+    friend_code: str = ""
+    puid: str = ""
 
+    @property
+    def is_complete(self) -> bool:
+        return bool(self.name) and all(v != "missing" for v in self.cosmetics.values())
 
-def default_player_info(player_id: int, client_id: int) -> bytes:
-    w = MessageWriter()
-    w.write_byte(player_id)
-    w.write_packed_int32(client_id)
-    w.write_byte(1)  # antal utstyrslar
-    w.write_byte(0)  # utstyrsel: standard
-    w.write_string("")  # namn (värden fyller i)
-    w.write_packed_int32(0)  # färg
-    for _ in range(5):  # hatt, husdjur, dräkt, visir, namnskylt
-        w.write_string("missing")
-    w.write_bytes(bytes(5))  # ändringsräknare för de fem ovan
-    w.write_packed_uint32(0)  # nivå
-    w.write_byte(0)  # flaggor (frånkopplad, död)
-    w.write_uint16(0)  # roll
-    w.write_bool(False)  # roll när levande
-    w.write_byte(0)  # antal uppdrag
-    w.write_string("")  # vänkod
-    w.write_string("")  # konto-id
-    return w.to_bytes()
+    def serialize(self) -> bytes:
+        w = MessageWriter()
+        w.write_byte(self.player_id)
+        w.write_packed_int32(self.client_id)
+        w.write_byte(1)  # antal utstyrslar
+        w.write_byte(0)  # utstyrsel: standard
+        w.write_string(self.name)
+        w.write_packed_int32(self.color)
+        for cosmetic in COSMETICS:  # hatt, husdjur, dräkt, visir, namnskylt
+            w.write_string(self.cosmetics[cosmetic])
+        for cosmetic in COSMETICS:  # ändringsräknare för de fem ovan
+            w.write_byte(self.sequence[cosmetic])
+        w.write_packed_uint32(self.level)
+        w.write_byte(0)  # flaggor (frånkopplad, död)
+        w.write_uint16(0)  # roll
+        w.write_bool(False)  # roll när levande
+        w.write_byte(0)  # antal uppdrag
+        w.write_string(self.friend_code)
+        w.write_string(self.puid)
+        return w.to_bytes()
+
+    def update_from_data(self, reader: MessageReader) -> None:
+        """Läser ett helt spelarinfo-tillstånd (om värden skickar ett)."""
+        reader.read_byte()  # spelarnummer
+        reader.read_packed_int32()  # klient-id
+        for _ in range(reader.read_byte()):
+            kind = reader.read_byte()
+            name = reader.read_string()
+            color = reader.read_packed_int32()
+            ids = [reader.read_string() for _ in COSMETICS]
+            seqs = [reader.read_byte() for _ in COSMETICS]
+            if kind == 0:  # standardutstyrseln
+                self.name, self.color = name, color
+                self.cosmetics = dict(zip(COSMETICS, ids))
+                self.sequence = dict(zip(COSMETICS, seqs))
+        self.level = reader.read_packed_uint32()
 
 
 @dataclass
@@ -172,6 +206,10 @@ class Lobby:
 
         # Spelargubbarnas objektnummer -> vems gubbe det är (spelar-id).
         self.player_controls: Dict[int, int] = {}
+        # En giltig namnskylt från spelet (bots använder den).
+        self.known_nameplate = ""
+        # Spelarinfo från förra rundan, så att färg och kläder kan behållas.
+        self.previous_infos: Dict[int, PlayerInfoObject] = {}
         # Spelar-id -> färgnummer, så att vi bara loggar när färgen ändras.
         self.colors: Dict[int, int] = {}
         # Gubbens objektnummer -> spelarnummer i spelet (0, 1, 2 ...).
@@ -326,6 +364,11 @@ class Lobby:
                 return i
         return 255
 
+    def info_for_control(self, net_id: int) -> Optional[PlayerInfoObject]:
+        """Spelarinfon för ägaren av gubben med objektnummer `net_id`."""
+        owner = self.player_controls.get(net_id)
+        return self.find_player_info(owner) if owner is not None else None
+
     def find_player_info(self, client_id: int) -> Optional[PlayerInfoObject]:
         for obj in self.server_objects.values():
             if obj.client_id == client_id:
@@ -345,7 +388,7 @@ class Lobby:
         w.write_byte(0)  # spawn-flaggor
         w.write_packed_uint32(1)  # antal delar
         w.write_packed_uint32(obj.net_id)
-        w.start_message(1).write_bytes(obj.state).end_message()
+        w.start_message(1).write_bytes(obj.serialize()).end_message()
         w.end_message()
         w.end_message()
         return w.to_bytes()
@@ -362,12 +405,12 @@ class Lobby:
         if self.find_player_info(player.client_id) is not None:
             return
         player_id = self.next_player_id()
-        obj = PlayerInfoObject(
-            net_id=self._next_net_id,
-            client_id=player.client_id,
-            player_id=player_id,
-            state=default_player_info(player_id, player.client_id),
-        )
+        obj = PlayerInfoObject(net_id=self._next_net_id, client_id=player.client_id, player_id=player_id)
+        old = self.previous_infos.get(player.client_id)
+        if old is not None:
+            # Efter en runda: behåll färg och kläder från förra gången.
+            obj.color, obj.cosmetics, obj.sequence = old.color, dict(old.cosmetics), dict(old.sequence)
+            obj.level = old.level
         self._next_net_id += 1
         self.server_objects[obj.net_id] = obj
         log.debug("%s: skapar spelarinfo %d för %s", self, obj.net_id, player.name)
@@ -388,6 +431,9 @@ class Lobby:
 class LobbyManager:
     def __init__(self) -> None:
         self.lobbies: Dict[int, Lobby] = {}
+        # Spelare som hämtat en token via HTTPS men inte anslutit via UDP än:
+        # namn -> (tid, adress). Används för att hitta anslutningsproblem.
+        self.waiting_for_udp: Dict[str, Tuple[float, str]] = {}
 
     def create(self, options: GameOptions) -> Lobby:
         while True:
