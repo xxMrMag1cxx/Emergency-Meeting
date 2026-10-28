@@ -9,3 +9,6 @@ cloudflared.tgz
 
 # Rapporter från servern
 loggar/
+
+# playit.gg: hemlig nyckel (skapas första gången)
+playit-nyckel.txt

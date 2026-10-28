@@ -53,6 +53,24 @@ class ServerInfo:
         self.public_ip = public_ip
         self.lobbies = lobbies
         self.tunnel_url = ""  # fylls i när tunneln är igång
+        # Spelets adress via playit.gg (ip, port), när den är klar.
+        self.playit_endpoint: Optional[Tuple[str, int]] = None
+        self.playit_address = ""
+
+    def set_playit(self, address: str, ip: str, port: int) -> None:
+        self.playit_address = address
+        self.playit_endpoint = (ip, port)
+
+    def game_endpoint(self, via_internet: bool) -> Tuple[str, int]:
+        """
+        Adressen (ip, port) som spelet ska ansluta till med UDP. Den som
+        kommer via HTTPS-tunneln får playit-adressen (fungerar överallt),
+        den som frågar direkt i hemnätverket får Macens adress.
+        """
+        endpoint = self.playit_endpoint
+        if via_internet and endpoint is not None:
+            return endpoint
+        return self.public_ip, self.config.port
 
 
 class MatchmakerHandler(BaseHTTPRequestHandler):
@@ -147,9 +165,10 @@ class MatchmakerHandler(BaseHTTPRequestHandler):
         """Beskrivningen av ett spel som visas i spelets lista."""
         host = lobby.host
         hs = host.connection.handshake if host else None
+        ip, port = self.info.game_endpoint(self._via_https())
         return {
-            "IP": ip_to_number(self.info.public_ip),
-            "Port": self.config.port,
+            "IP": ip_to_number(ip),
+            "Port": port,
             "GameId": lobby.code_int,
             "PlayerCount": len(lobby.players),
             "HostName": lobby.host_name,
@@ -166,7 +185,8 @@ class MatchmakerHandler(BaseHTTPRequestHandler):
         }
 
     def _host_server(self) -> dict:
-        return {"Ip": ip_to_number(self.info.public_ip), "Port": self.config.port}
+        ip, port = self.info.game_endpoint(self._via_https())
+        return {"Ip": ip_to_number(ip), "Port": port}
 
     def _who(self) -> str:
         via = "via HTTPS-tunneln" if self._via_https() else "direkt"
@@ -280,11 +300,9 @@ class MatchmakerHandler(BaseHTTPRequestHandler):
         log.debug("PUT %s med %d bytes: %s", self.path, len(body), body.hex(" "))
 
         if path == "/api/games":
-            log.info(
-                "Spelet vill skapa ett spel, vi skickar det till %s:%s (steg 2)",
-                self.info.public_ip,
-                self.config.port,
-            )
+            ip, port = self.info.game_endpoint(self._via_https())
+            via = " via playit.gg" if (ip, port) == self.info.playit_endpoint else ""
+            log.info("Spelet vill skapa ett spel, vi skickar det till %s:%s%s (steg 2)", ip, port, via)
             self._send(200, self._host_server())
         else:
             log.info("Okänd PUT-förfrågan: %s", self.path)

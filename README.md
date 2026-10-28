@@ -22,6 +22,10 @@ med egna plugins.
 - [x] **Steg 7:** Impostors kan döda (servern bestämmer, som Among Us egna
       servrar). Bots går runt i lobbyn och på alla kartor och går till sina
       uppdrag (behöver testas med riktiga spelet)
+- [x] **Steg 8:** Kompisar kan spela från sina egna hem, på dator eller
+      mobil, via playit.gg. Inget behöver ändras i routern (behöver testas
+      med riktiga spelet)
+- [ ] **Steg 9:** En HTTPS-adress som är samma varje gång (ngrok)
 
 ## Kom igång på Macen
 
@@ -80,7 +84,8 @@ med spelkoden. Om allt fungerar skriver den `Allt fungerar!`.
 
 ## Ansluta med Among Us
 
-Enheten som spelar måste vara på **samma wifi** som Macen.
+Med playit.gg (se nästa del) kan den som spelar vara var som helst. Utan
+playit.gg måste enheten vara på **samma wifi** som Macen.
 
 1. Öppna HTTPS-adressen som servern skrev ut i en webbläsare på enheten
    som ska spela.
@@ -95,6 +100,49 @@ genom att lägga till servern på samma sätt och skriva in spelkoden.
 
 Eftersom adressen byts vid varje omstart behöver man göra om steg 1–2 efter
 att servern har startats om.
+
+## Spela med kompisar hemifrån
+
+Servern använder **playit.gg** (gratis) för att kompisar ska kunna spela med
+er från sina egna hem, på wifi eller mobildata. Ingenting behöver ändras i
+routern. Spelet får en fast adress hos playit.gg som är samma varje gång.
+
+### Första gången (bara värden)
+
+1. Starta servern. Den visar rutan **KOPPLA SERVERN TILL PLAYIT.GG** med en
+   länk, till exempel `https://playit.gg/claim/3fa91c0d2e`.
+2. Öppna länken i en webbläsare. Logga in, eller skapa ett gratiskonto, och
+   godkänn servern.
+3. Servern skapar sedan själv en tunnel hos playit.gg. Om det inte går visar
+   den rutan **SKAPA EN TUNNEL PÅ PLAYIT.GG** med vad man ska klicka på
+   playit.gg. Servern märker själv när tunneln är klar.
+4. När rutan **PLAYIT ÄR KLART!** syns är allt klart.
+
+Servern sparar en hemlig nyckel i `playit-nyckel.txt`. Därefter går allt av
+sig självt varje gång servern startar. Dela inte filen med någon, och lägg
+inte upp den på GitHub (den är redan undantagen i `.gitignore`).
+
+### Så går kompisar med
+
+Precis som på wifi: de öppnar HTTPS-adressen som servern skrev ut, trycker
+**Lägg till i Among Us**, startar om spelet, väljer **Emergency Meeting** och
+skriver in spelkoden. Skicka adressen till dem i en chatt.
+
+HTTPS-adressen byts fortfarande vid varje omstart av servern, så kompisarna
+behöver lägga till servern igen efter en omstart. Det fixar vi i steg 9.
+
+Telefoner behöver inte längre tillståndet "Lokalt nätverk", eftersom spelet
+går via internet i stället för direkt till Macen.
+
+### Om något strular
+
+- **PLAYIT.GG KÄNNER INTE IGEN SERVERN**: nyckeln fungerar inte längre (till
+  exempel om servern togs bort på playit.gg). Ta bort `playit-nyckel.txt` och
+  starta om servern, så kommer en ny länk.
+- **"playit.gg finns inte här"** i loggen: filen `playit/playitd-macos`
+  saknas. Ladda ner koden som ZIP igen, eller dubbelklicka på
+  `bygg-playit.command` (se [playit/README.md](playit/README.md)).
+- Vill ni bara spela på ert wifi: sätt `"playit": false` i `config.json`.
 
 ## Vad loggen visar
 
@@ -174,6 +222,8 @@ Serverns egna inställningar finns i `config.json`:
 | `public_ip`        | `auto` = Macens adress i hemnätverket. Kan sättas till en egen adress |
 | `https_tunnel`     | `true` = starta HTTPS-tunneln med cloudflared |
 | `cloudflared_path` | `auto` = leta efter cloudflared själv (projektmappen först) |
+| `playit`           | `true` = gör spelet nåbart hemifrån med playit.gg |
+| `playit_path`      | `auto` = leta efter playitd själv (mappen `playit/` först) |
 | `plugins`          | `true` = ladda plugins från mappen `plugins/` |
 | `debug`            | `true` = visa varje paket i loggen, bra vid felsökning |
 
@@ -185,6 +235,7 @@ server/
   config.py      läser config.json
   matchmaker.py  HTTP-delen: spelet frågar var servern finns
   tunnel.py      startar cloudflared och läser ut HTTPS-adressen
+  playit.py      startar playitd och håller koll på playit.gg-tunneln
   webpage.py     startsidan med knappen "Lägg till i Among Us"
   region.py      bygger regionInfo.json och amongus://-länken
   hazel.py       nätverkslagret: kvitton, ping och omsändning av paket
@@ -201,23 +252,30 @@ server/
   messages.py    läsa och skriva bytes
   protocol.py    alla siffror och namn som Among Us använder
 plugins/         plugins som servern laddar (se plugins/README.md)
+playit/          playitd, playit.gg:s tunnelprogram (se playit/README.md)
 tools/
   testklient.py  två låtsas-Among Us som testar servern (skapa, gå med,
                  byta färg, ändra inställningar, chatta, lämna)
 start.command               starta servern
 testa.command               kör testklienten
 hamta-cloudflared.command   hämtar cloudflared
+bygg-playit.command         bygger playitd på Macen (behövs sällan)
+.github/workflows/          GitHub bygger playitd för Mac
 ```
 
 Så här går en anslutning till:
 
 ```
 Among Us --HTTPS--> Cloudflare --tunnel--> cloudflared --HTTP--> servern (TCP 22023)
-Among Us -----------------------UDP-----------------------> servern (UDP 22023)
+Among Us --UDP----> playit.gg ---tunnel--> playitd -----UDP----> servern (UDP 22023)
 ```
 
+Utan playit.gg (eller om spelet frågar servern direkt, utan HTTPS) går UDP
+direkt från spelet till Macen på ert wifi.
+
 1. Spelet frågar servern via **HTTPS**: "Får jag en token?" och "Var ska jag
-   skapa spelet?". Servern svarar med Macens adress i hemnätverket.
+   skapa spelet?". Servern svarar med playit.gg-adressen (eller Macens
+   adress i hemnätverket om playit.gg inte används).
 2. Spelet skickar ett **Hello**-paket direkt till Macen via **UDP** med namn
    och version.
 3. Spelet skickar **HostGame** ("skapa spel") med inställningarna. Servern

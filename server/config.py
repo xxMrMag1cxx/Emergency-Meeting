@@ -44,6 +44,13 @@ class Config:
     # Var cloudflared finns. "auto" = leta själv (projektmappen först).
     cloudflared_path: str = "auto"
 
+    # Gör spelet nåbart från internet med playit.gg, så att kompisar kan
+    # spela från sina egna hem utan att något ändras i routern.
+    playit: bool = True
+
+    # Var programmet playitd finns. "auto" = leta själv (mappen playit/ först).
+    playit_path: str = "auto"
+
     # Ladda plugins från mappen plugins/.
     plugins: bool = True
 

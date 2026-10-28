@@ -13,6 +13,7 @@ if sys.version_info < (3, 8):
 
 import asyncio  # noqa: E402
 import logging  # noqa: E402
+import signal  # noqa: E402
 import threading  # noqa: E402
 
 from . import __version__  # noqa: E402
@@ -21,6 +22,7 @@ from .game import Game  # noqa: E402
 from .hazel import HazelServer  # noqa: E402
 from .lobby import LobbyManager  # noqa: E402
 from .matchmaker import ServerInfo, start_matchmaker  # noqa: E402
+from .playit import Playit, find_playitd  # noqa: E402
 from .plugins import PluginManager  # noqa: E402
 from .region import region_info_json  # noqa: E402
 from .tunnel import Tunnel, find_cloudflared  # noqa: E402
@@ -152,6 +154,16 @@ async def run() -> None:
             log.warning("Among Us på andra enheter kan inte ansluta utan HTTPS.")
             log.warning("Fixa det: dubbelklicka på hamta-cloudflared.command och starta om servern.")
 
+    playit = None
+    if config.playit:
+        binary = find_playitd(config.playit_path)
+        if binary:
+            playit = Playit(binary, config.port, info.set_playit, print_box)
+            playit.start()
+        else:
+            log.info("playit.gg finns inte här, så spelet nås bara från ert wifi.")
+            log.info("Se \"Spela med kompisar hemifrån\" i README.md för hur man fixar det.")
+
     if tunnel is None:
         announcer.announce()
     else:
@@ -165,11 +177,20 @@ async def run() -> None:
         cleanup.cancel()
         if tunnel:
             tunnel.stop()
+        if playit:
+            playit.stop()
         transport.close()
         httpd.shutdown()
 
 
+def _stop_on_signal(signum, frame) -> None:
+    raise KeyboardInterrupt  # stäng av snyggt, så att playitd och cloudflared också stängs
+
+
 def main() -> None:
+    for name in ("SIGTERM", "SIGHUP"):  # t.ex. när Terminal-fönstret stängs
+        if hasattr(signal, name):
+            signal.signal(getattr(signal, name), _stop_on_signal)
     try:
         asyncio.run(run())
     except KeyboardInterrupt:

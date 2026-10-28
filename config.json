@@ -5,6 +5,8 @@
     "public_ip": "auto",
     "https_tunnel": true,
     "cloudflared_path": "auto",
+    "playit": true,
+    "playit_path": "auto",
     "plugins": true,
     "debug": false
 }

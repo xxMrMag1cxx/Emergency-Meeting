@@ -1,0 +1,70 @@
+# Bygger playitd (playit.gg:s tunnelprogram) för Mac från deras öppna källkod
+# och lägger det i playit/playitd-macos. Fungerar på både Intel-Macar och
+# Macar med Apple-chip (M1, M2 ...), från macOS 11.
+#
+# Körs av sig själv när playit/VERSION ändras. Man kan också starta den för
+# hand på GitHub: fliken Actions -> "Bygg playitd för Mac" -> Run workflow.
+name: Bygg playitd för Mac
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - playit/VERSION
+      - .github/workflows/bygg-playit.yml
+
+permissions:
+  contents: write
+
+jobs:
+  bygg:
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Hämta källkoden till playit-agent
+        run: |
+          VERSION="$(tr -d '[:space:]' < playit/VERSION)"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          git clone --depth 1 --branch "v$VERSION" https://github.com/playit-cloud/playit-agent.git "$RUNNER_TEMP/playit-agent"
+
+      - name: Bygg för Intel och Apple-chip
+        working-directory: ${{ runner.temp }}/playit-agent
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
+        run: |
+          rustup update stable
+          rustup default stable
+          rustup target add x86_64-apple-darwin aarch64-apple-darwin
+          cargo build --release --locked -p playitd --target x86_64-apple-darwin
+          cargo build --release --locked -p playitd --target aarch64-apple-darwin
+
+      - name: Slå ihop till en fil och testa
+        run: |
+          SRC="$RUNNER_TEMP/playit-agent"
+          lipo -create -output playit/playitd-macos \
+            "$SRC/target/x86_64-apple-darwin/release/playitd" \
+            "$SRC/target/aarch64-apple-darwin/release/playitd"
+          codesign --force --sign - playit/playitd-macos
+          chmod +x playit/playitd-macos
+          cp "$SRC/LICENSE.txt" playit/LICENSE-playit.txt
+          lipo -info playit/playitd-macos
+          ls -l playit/playitd-macos
+          ./playit/playitd-macos --help
+          if arch -x86_64 /usr/bin/true 2>/dev/null; then
+            arch -x86_64 ./playit/playitd-macos --help > /dev/null && echo "Intel-delen startar också"
+          fi
+
+      - name: Spara i repot
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add playit/playitd-macos playit/LICENSE-playit.txt
+          if git diff --cached --quiet; then
+            echo "Ingen ändring."
+            exit 0
+          fi
+          git commit -m "playitd $VERSION för Mac (byggd av GitHub Actions)"
+          git pull --rebase
+          git push
