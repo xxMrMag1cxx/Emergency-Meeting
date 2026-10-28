@@ -62,6 +62,12 @@ class Config:
     # Ladda plugins från mappen plugins/.
     plugins: bool = True
 
+    # Visa spelen på servern och deras koder på startsidan.
+    page_shows_games: bool = True
+
+    # Visa HTTPS-adressen som QR-kod i Terminal-fönstret.
+    terminal_qr: bool = True
+
     # Sätt till true för att se varenda paket i loggen (bra för felsökning).
     debug: bool = False
 

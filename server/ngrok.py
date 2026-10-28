@@ -155,6 +155,42 @@ def _fetch(url: str, target: Path) -> bool:
     return False
 
 
+_saved_terminal = None  # terminalens inställningar medan nyckeln läses
+
+
+def _read_hidden_line() -> str:
+    """Läser en rad utan att den syns i terminalen (som när man skriver ett lösenord)."""
+    global _saved_terminal
+    try:
+        import termios
+        fd = sys.stdin.fileno()
+        old = termios.tcgetattr(fd)
+        new = termios.tcgetattr(fd)
+        new[3] &= ~termios.ECHO
+        termios.tcsetattr(fd, termios.TCSADRAIN, new)
+    except Exception:  # ingen riktig terminal (t.ex. Windows eller ett test)
+        return sys.stdin.readline()
+    _saved_terminal = (fd, old)
+    try:
+        return sys.stdin.readline()
+    finally:
+        restore_terminal()
+
+
+def restore_terminal() -> None:
+    """Sätter tillbaka terminalen (så att man ser vad man skriver igen)."""
+    global _saved_terminal
+    if _saved_terminal is None:
+        return
+    fd, old = _saved_terminal
+    _saved_terminal = None
+    try:
+        import termios
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+    except Exception:
+        pass
+
+
 def clean_token(text: str) -> str:
     """
     Tar fram nyckeln ur det som klistrades in. På ngroks sida står den ofta
@@ -201,6 +237,7 @@ class Ngrok:
 
     def stop(self) -> None:
         self._stopping.set()
+        restore_terminal()
         if self.process and self.process.poll() is None:
             self.process.terminate()
             try:
@@ -272,12 +309,14 @@ class Ngrok:
             f"  2. Öppna {TOKEN_URL}",
             "  3. Kopiera din Authtoken.",
             "  4. Klistra in den här i terminalfönstret och tryck Enter.",
+            "     (Nyckeln syns inte när du klistrar in den. Det är meningen,",
+            "     den är hemlig.)",
             "",
             "Tryck bara Enter för att hoppa över. Då används Cloudflare som förut.",
         ])
         for _ in range(3):
             try:
-                text = sys.stdin.readline()
+                text = _read_hidden_line()
             except (OSError, ValueError):
                 return None
             if self._stopping.is_set():

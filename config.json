@@ -10,5 +10,7 @@
     "playit": true,
     "playit_path": "auto",
     "plugins": true,
+    "page_shows_games": true,
+    "terminal_qr": true,
     "debug": false
 }

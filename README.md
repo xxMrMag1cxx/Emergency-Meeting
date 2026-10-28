@@ -25,8 +25,10 @@ med egna plugins.
 - [x] **Steg 8:** Kompisar kan spela från sina egna hem, på dator eller
       mobil, via playit.gg. Inget behöver ändras i routern
 - [x] **Steg 9:** En HTTPS-adress som är samma varje gång (ngrok), så att
-      kompisar bara behöver lägga till servern en gång (behöver testas med
-      riktiga spelet)
+      kompisar bara behöver lägga till servern en gång
+- [x] **Steg 10:** En anslutningssida som visar rätt steg för varje enhet,
+      spelkoderna, en QR-kod och ett färdigt meddelande till kompisar
+      (behöver testas med riktiga spelet)
 
 ## Kom igång på Macen
 
@@ -98,15 +100,30 @@ Med playit.gg (se nästa del) kan den som spelar vara var som helst. Utan
 playit.gg måste enheten vara på **samma wifi** som Macen.
 
 1. Öppna HTTPS-adressen som servern skrev ut i en webbläsare på enheten
-   som ska spela.
-2. Tryck på **Lägg till i Among Us**. Spelet öppnas och servern läggs till.
-   På PC kan man i stället ladda ner `regionInfo.json` från samma sida och
-   lägga den i spelets mapp (sidan visar var).
+   som ska spela, eller skanna QR-koden i Terminal-fönstret med
+   mobilkameran.
+2. Sidan visar stegen för just den enheten (iPhone/iPad, Android, PC eller
+   Mac). På telefoner räcker det att trycka på den röda knappen **Lägg till i
+   Among Us**. På PC laddar man ner `regionInfo.json`, och sidan har en knapp
+   som kopierar adressen till mappen där filen ska ligga.
 3. Starta om Among Us helt, välj servern **Emergency Meeting** och tryck på
-   **Create Game**.
+   **Create Game**, eller **Enter Code** och skriv in en kod.
 
-Spelet får en spelkod och du hamnar i lobbyn. Andra på samma wifi kan gå med
-genom att lägga till servern på samma sätt och skriva in spelkoden.
+### Startsidan
+
+Startsidan har tre delar:
+
+- **Lägg till servern**: stegen för enheten man använder. Fel enhet? Byt
+  med flikarna högst upp.
+- **Spela**: alla spel på servern med spelkod, värd, karta och antal
+  spelare. Listan uppdateras av sig själv. **Kopiera kod** lägger koden i
+  urklipp.
+- **Bjud in kompisar**: en QR-kod och ett färdigt meddelande. Tryck **Bjud in
+  till spelet** vid ett spel, så kommer koden med i meddelandet. Kopiera det
+  eller tryck **Dela** (på telefonen) och skicka det i en chatt.
+
+Öppnar man `http://localhost:22023` på Macen visas adressen som kompisarna
+ska använda, med en stor QR-kod, spelen och meddelandet.
 
 Med ngrok behöver man bara göra steg 1–2 en gång. Med en Cloudflare-adress
 byts adressen vid varje omstart, och då måste man göra om steg 1–2.
@@ -125,7 +142,8 @@ lägga till servern i Among Us en gång.
 3. Öppna <https://dashboard.ngrok.com/get-started/your-authtoken> och kopiera
    din **Authtoken**.
 4. Klicka i terminalfönstret, klistra in nyckeln (Cmd+V) och tryck **Enter**.
-   Det gör inget om det kommer andra rader i fönstret under tiden.
+   Nyckeln syns inte när du klistrar in den, eftersom den är hemlig. Det gör
+   inget om det kommer andra rader i fönstret under tiden.
 5. Servern hämtar själv programmet ngrok och skriver sedan **HTTPS ÄR KLART!**
    med den nya adressen.
 
@@ -143,6 +161,11 @@ Tryck bara Enter om ni vill hoppa över ngrok den gången.
   stället. Det står i rutan **HTTPS ÄR KLART!** vilken adress som gäller.
 - Gratiskontot räcker gott: ngrok tillåter 20 000 anrop i månaden, och en
   spelare som går med gör bara ett fåtal.
+- Har nyckeln synts för någon annan, till exempel i en skärmdump eller en
+  kopierad logg: skapa en ny på
+  <https://dashboard.ngrok.com/get-started/your-authtoken> (**Reset
+  Authtoken**). Nästa gång servern startar säger den att nyckeln inte
+  fungerar och ber om den nya.
 - Vill ni bara använda Cloudflare: sätt `"ngrok": false` i `config.json`.
 
 ## Spela med kompisar hemifrån
@@ -271,6 +294,8 @@ Serverns egna inställningar finns i `config.json`:
 | `playit`           | `true` = gör spelet nåbart hemifrån med playit.gg |
 | `playit_path`      | `auto` = leta efter playitd själv (mappen `playit/` först) |
 | `plugins`          | `true` = ladda plugins från mappen `plugins/` |
+| `page_shows_games` | `true` = visa spelen och deras koder på startsidan |
+| `terminal_qr`      | `true` = visa HTTPS-adressen som QR-kod i Terminal-fönstret |
 | `debug`            | `true` = visa varje paket i loggen, bra vid felsökning |
 
 ## Så här är koden uppbyggd
@@ -283,7 +308,8 @@ server/
   ngrok.py       startar ngrok: HTTPS-adress som är samma varje gång
   tunnel.py      startar cloudflared (reserv): HTTPS-adress som byts varje gång
   playit.py      startar playitd och håller koll på playit.gg-tunneln
-  webpage.py     startsidan med knappen "Lägg till i Among Us"
+  webpage.py     startsidan: lägga till servern, spelkoder, inbjudan
+  qrkod.py       QR-koder (för terminalen och startsidan)
   region.py      bygger regionInfo.json och amongus://-länken
   hazel.py       nätverkslagret: kvitton, ping och omsändning av paket
   handshake.py   läser spelets första paket (namn, version, plattform)

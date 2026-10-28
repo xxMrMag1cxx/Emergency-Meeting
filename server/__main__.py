@@ -24,6 +24,7 @@ from .hazel import HazelServer  # noqa: E402
 from .lobby import LobbyManager  # noqa: E402
 from .matchmaker import ServerInfo, start_matchmaker  # noqa: E402
 from .ngrok import Ngrok  # noqa: E402
+from .qrkod import QrKod  # noqa: E402
 from .playit import Playit, find_playitd  # noqa: E402
 from .plugins import PluginManager  # noqa: E402
 from .region import region_info_json  # noqa: E402
@@ -93,8 +94,9 @@ def announce_tunnel(info: ServerInfo, url: str, fixed: bool, changed: bool = Fal
         "Öppna den här adressen på enheten som ska spela:",
         f"    {url}",
         "",
-        "Där finns en knapp som lägger till servern i Among Us.",
-        f"(En färdig {region_file.name} har också sparats i projektmappen.)",
+        "Där finns allt som behövs: hur man lägger till servern, spelkoderna",
+        "och ett färdigt meddelande att skicka till kompisar.",
+        f"Eller öppna http://localhost:{info.config.port} här på Macen.",
         "",
     ]
     if not fixed:
@@ -111,6 +113,12 @@ def announce_tunnel(info: ServerInfo, url: str, fixed: bool, changed: bool = Fal
             "(ngrok visar en varningssida i webbläsaren: tryck Visit Site.)",
         ]
     print_box("HTTPS ÄR KLART!", lines)
+    if info.config.terminal_qr:
+        try:
+            print("  Skanna med mobilkameran för att öppna sidan:", flush=True)
+            print(QrKod.skapa(url, "M").terminal(kant=3), flush=True)
+        except ValueError:
+            pass
 
 
 async def run() -> None:

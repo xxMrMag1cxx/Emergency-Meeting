@@ -35,7 +35,7 @@ from .config import Config
 from .lobby import Lobby, LobbyManager
 from .protocol import DisconnectReason
 from .region import region_info_json
-from .webpage import render
+from .webpage import games_json, render
 
 log = logging.getLogger("http")
 
@@ -207,8 +207,16 @@ class MatchmakerHandler(BaseHTTPRequestHandler):
         if path == "/":
             url, port, is_https = self._public_address()
             log.info("Någon öppnade startsidan (%s)", self._who())
-            page = render(self.config.server_name, url, port, is_https, self.info.tunnel_url)
+            page = render(
+                self.config.server_name, url, port, is_https, self.info.tunnel_url,
+                show_games=self.config.page_shows_games,
+                playable_from_home=self.info.playit_endpoint is not None,
+            )
             self._send(200, page, "text/html; charset=utf-8")
+
+        elif path == "/spel.json":
+            # Listan över spel på startsidan (hämtas var femte sekund)
+            self._send(200, games_json(self.info.lobbies.all(), self.config.page_shows_games))
 
         elif path == "/regionInfo.json":
             url, port, _ = self._public_address()
