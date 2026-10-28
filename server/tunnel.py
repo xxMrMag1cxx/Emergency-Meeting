@@ -8,11 +8,11 @@ datorer litar på. Att skaffa ett eget är krångligt, så vi lånar Cloudflares
 
 cloudflared ger oss en slumpad adress, t.ex.
     https://kingston-inside-best-graphic.trycloudflare.com
-Adressen byts varje gång servern startas om.
+Adressen byts varje gång servern startas om. Därför används helst ngrok
+(se ngrok.py), och Cloudflare är reserven om ngrok inte fungerar.
 
-Bara HTTP-delen går genom tunneln. Själva spelet (UDP) går direkt till
-Macen, så spelarna behöver vara på samma wifi (eller så öppnar man port
-22023 UDP i routern).
+Bara HTTP-delen går genom tunneln. Själva spelet (UDP) går via playit.gg
+(se playit.py), eller direkt till Macen på ert wifi.
 
 Inget konto behövs. Hämta programmet en gång med hamta-cloudflared.command.
 """

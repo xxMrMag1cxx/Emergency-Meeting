@@ -23,9 +23,10 @@ med egna plugins.
       servrar). Bots går runt i lobbyn och på alla kartor och går till sina
       uppdrag (behöver testas med riktiga spelet)
 - [x] **Steg 8:** Kompisar kan spela från sina egna hem, på dator eller
-      mobil, via playit.gg. Inget behöver ändras i routern (behöver testas
-      med riktiga spelet)
-- [ ] **Steg 9:** En HTTPS-adress som är samma varje gång (ngrok)
+      mobil, via playit.gg. Inget behöver ändras i routern
+- [x] **Steg 9:** En HTTPS-adress som är samma varje gång (ngrok), så att
+      kompisar bara behöver lägga till servern en gång (behöver testas med
+      riktiga spelet)
 
 ## Kom igång på Macen
 
@@ -56,8 +57,9 @@ filer nedan startas med dubbelklick i Finder.
 
 Dubbelklicka på **`hamta-cloudflared.command`**.
 
-Among Us kräver HTTPS när spelet och servern är på olika enheter. Programmet
-cloudflared ger servern en gratis HTTPS-adress via Cloudflare, utan konto.
+Among Us kräver HTTPS när spelet och servern är på olika enheter. Servern
+använder helst ngrok (se nedan), och cloudflared är reserven om ngrok inte
+fungerar. cloudflared ger en gratis HTTPS-adress via Cloudflare, utan konto.
 Skriptet väljer själv en version som fungerar på er macOS.
 
 ### 4. Starta servern
@@ -65,14 +67,22 @@ Skriptet väljer själv en version som fungerar på er macOS.
 Dubbelklicka på **`start.command`**. Om macOS frågar om Python får ta emot
 inkommande anslutningar, välj **Tillåt**.
 
+Första gången frågar servern efter två saker. Båda behövs bara en gång:
+
+- **FAST HTTPS-ADRESS MED NGROK**: klistra in en nyckel från ngrok, se
+  [Fast HTTPS-adress med ngrok](#fast-https-adress-med-ngrok).
+- **KOPPLA SERVERN TILL PLAYIT.GG**: öppna en länk och godkänn servern, se
+  [Spela med kompisar hemifrån](#spela-med-kompisar-hemifrån).
+
 Efter 10–30 sekunder skriver servern ut **HTTPS ÄR KLART!** och en adress,
 till exempel:
 
 ```
-https://kingston-inside-best-graphic.trycloudflare.com
+https://glad-pingvin-1234.ngrok-free.dev
 ```
 
-Adressen byts varje gång servern startas om.
+Med ngrok är adressen samma varje gång. Utan ngrok blir det en
+Cloudflare-adress (`...trycloudflare.com`) som byts vid varje start.
 
 Stäng av servern med **Ctrl+C**.
 
@@ -98,8 +108,42 @@ playit.gg måste enheten vara på **samma wifi** som Macen.
 Spelet får en spelkod och du hamnar i lobbyn. Andra på samma wifi kan gå med
 genom att lägga till servern på samma sätt och skriva in spelkoden.
 
-Eftersom adressen byts vid varje omstart behöver man göra om steg 1–2 efter
-att servern har startats om.
+Med ngrok behöver man bara göra steg 1–2 en gång. Med en Cloudflare-adress
+byts adressen vid varje omstart, och då måste man göra om steg 1–2.
+
+## Fast HTTPS-adress med ngrok
+
+**ngrok** (gratis) ger servern en HTTPS-adress som är samma varje gång, till
+exempel `https://glad-pingvin-1234.ngrok-free.dev`. Då behöver kompisar bara
+lägga till servern i Among Us en gång.
+
+### Första gången (bara värden)
+
+1. Starta servern. Den visar rutan **FAST HTTPS-ADRESS MED NGROK**.
+2. Skapa ett gratiskonto på <https://dashboard.ngrok.com/signup> (eller logga
+   in).
+3. Öppna <https://dashboard.ngrok.com/get-started/your-authtoken> och kopiera
+   din **Authtoken**.
+4. Klicka i terminalfönstret, klistra in nyckeln (Cmd+V) och tryck **Enter**.
+   Det gör inget om det kommer andra rader i fönstret under tiden.
+5. Servern hämtar själv programmet ngrok och skriver sedan **HTTPS ÄR KLART!**
+   med den nya adressen.
+
+Nyckeln sparas i `ngrok-nyckel.txt` och adressen i `ngrok-adress.txt`. Dela
+inte nyckeln med någon (filen är redan undantagen i `.gitignore`).
+
+Tills nyckeln är inklistrad används Cloudflare, så servern fungerar ändå.
+Tryck bara Enter om ni vill hoppa över ngrok den gången.
+
+### Bra att veta
+
+- Första gången man öppnar adressen i en webbläsare visar ngrok en
+  varningssida. Tryck **Visit Site**. Spelet själv får ingen varningssida.
+- Om ngrok inte kommer igång inom 40 sekunder tar servern Cloudflare i
+  stället. Det står i rutan **HTTPS ÄR KLART!** vilken adress som gäller.
+- Gratiskontot räcker gott: ngrok tillåter 20 000 anrop i månaden, och en
+  spelare som går med gör bara ett fåtal.
+- Vill ni bara använda Cloudflare: sätt `"ngrok": false` i `config.json`.
 
 ## Spela med kompisar hemifrån
 
@@ -128,8 +172,8 @@ Precis som på wifi: de öppnar HTTPS-adressen som servern skrev ut, trycker
 **Lägg till i Among Us**, startar om spelet, väljer **Emergency Meeting** och
 skriver in spelkoden. Skicka adressen till dem i en chatt.
 
-HTTPS-adressen byts fortfarande vid varje omstart av servern, så kompisarna
-behöver lägga till servern igen efter en omstart. Det fixar vi i steg 9.
+Med ngrok gör de det bara en gång. Nästa gång väljer de bara **Emergency
+Meeting** i spelet och skriver in spelkoden.
 
 Telefoner behöver inte längre tillståndet "Lokalt nätverk", eftersom spelet
 går via internet i stället för direkt till Macen.
@@ -220,7 +264,9 @@ Serverns egna inställningar finns i `config.json`:
 | `listen_ip`        | `0.0.0.0` = lyssna på alla nätverk. Behöver sällan ändras |
 | `port`             | Port för både HTTP och spel. Among Us använder `22023` |
 | `public_ip`        | `auto` = Macens adress i hemnätverket. Kan sättas till en egen adress |
-| `https_tunnel`     | `true` = starta HTTPS-tunneln med cloudflared |
+| `https_tunnel`     | `true` = starta en HTTPS-tunnel (ngrok, annars cloudflared) |
+| `ngrok`            | `true` = använd ngrok, så att HTTPS-adressen är samma varje gång |
+| `ngrok_path`       | `auto` = leta efter ngrok själv (mappen `ngrok/` först) och hämta det om det saknas |
 | `cloudflared_path` | `auto` = leta efter cloudflared själv (projektmappen först) |
 | `playit`           | `true` = gör spelet nåbart hemifrån med playit.gg |
 | `playit_path`      | `auto` = leta efter playitd själv (mappen `playit/` först) |
@@ -234,7 +280,8 @@ server/
   __main__.py    startar allt
   config.py      läser config.json
   matchmaker.py  HTTP-delen: spelet frågar var servern finns
-  tunnel.py      startar cloudflared och läser ut HTTPS-adressen
+  ngrok.py       startar ngrok: HTTPS-adress som är samma varje gång
+  tunnel.py      startar cloudflared (reserv): HTTPS-adress som byts varje gång
   playit.py      startar playitd och håller koll på playit.gg-tunneln
   webpage.py     startsidan med knappen "Lägg till i Among Us"
   region.py      bygger regionInfo.json och amongus://-länken
@@ -266,12 +313,13 @@ bygg-playit.command         bygger playitd på Macen (behövs sällan)
 Så här går en anslutning till:
 
 ```
-Among Us --HTTPS--> Cloudflare --tunnel--> cloudflared --HTTP--> servern (TCP 22023)
+Among Us --HTTPS--> ngrok -------tunnel--> ngrok -------HTTP---> servern (TCP 22023)
 Among Us --UDP----> playit.gg ---tunnel--> playitd -----UDP----> servern (UDP 22023)
 ```
 
-Utan playit.gg (eller om spelet frågar servern direkt, utan HTTPS) går UDP
-direkt från spelet till Macen på ert wifi.
+Om ngrok inte fungerar går HTTPS i stället via Cloudflare (programmet
+cloudflared). Utan playit.gg (eller om spelet frågar servern direkt, utan
+HTTPS) går UDP direkt från spelet till Macen på ert wifi.
 
 1. Spelet frågar servern via **HTTPS**: "Får jag en token?" och "Var ska jag
    skapa spelet?". Servern svarar med playit.gg-adressen (eller Macens
@@ -294,13 +342,20 @@ som håller koll på vem som är med i vilket spel.
 
 - **Svart skärm och inget händer i serverfönstret**: spelet når inte servern.
   Kolla att ni använder HTTPS-adressen från *senaste* starten av servern.
+  Med ngrok är adressen samma varje gång, men om rutan **HTTPS ÄR KLART!**
+  visar en `trycloudflare.com`-adress har servern tagit Cloudflare i stället.
+- **NGROK KÄNNER INTE IGEN NYCKELN**: klistra in en ny nyckel från
+  <https://dashboard.ngrok.com/get-started/your-authtoken> i terminalfönstret.
+- **NGROK ANVÄNDS REDAN**: ngrok-kontot används av en annan dator eller ett
+  annat program. Stäng det och starta om servern.
 - **"försökte ansluta med HTTPS direkt till port 22023"** i loggen: spelet är
   inställt på Macens IP-adress i stället för HTTPS-adressen. Lägg till servern
   igen via HTTPS-adressen.
 - **"nådde servern via HTTPS men anslöt aldrig till spelet via UDP"** i loggen:
-  enheten kommer åt servern via internet men inte direkt till Macen. På
-  iPhone: Inställningar → Integritet och säkerhet → Lokalt nätverk → slå på
-  Among Us. Kolla också att enheten är på samma wifi.
+  enheten kommer åt servern via internet men inte själva spelet. Kolla att
+  rutan **PLAYIT ÄR KLART!** har visats. Utan playit.gg måste enheten vara på
+  samma wifi, och på iPhone: Inställningar → Integritet och säkerhet → Lokalt
+  nätverk → slå på Among Us.
 - **Token hämtas men inget mer händer**: spelet når HTTPS-delen men inte UDP.
   Kolla att enheten är på samma wifi och att brandväggen tillåter Python
   (Systeminställningar → Säkerhet och integritet → Brandvägg).

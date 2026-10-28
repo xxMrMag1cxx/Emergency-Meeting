@@ -2,7 +2,7 @@
 playit.gg: gör spelet nåbart från internet, utan att ändra något i routern.
 
 Among Us ansluter i två steg:
-  1. HTTPS (matchmaking) - går genom tunnel.py (Cloudflare)
+  1. HTTPS (matchmaking) - går genom ngrok.py (eller tunnel.py, Cloudflare)
   2. UDP (själva spelet) - går hit, genom playit.gg
 
     Kompis --UDP--> playit.gg --tunnel--> playitd på Macen --UDP--> vår server (port 22023)
@@ -54,6 +54,12 @@ PLAYIT_DIR = PROJECT_DIR / "playit"
 LOCAL_IP = "127.0.0.1"
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 PROBLEM = re.compile(r"\b(WARN|ERROR)\b")
+# Varningar som playitd skriver vid varje start och som inte betyder något
+# (t.ex. att Macen inte har IPv6). De visas bara med "debug": true.
+HARMLESS = re.compile(
+    r"No route to host|Network is unreachable|failed to ping tunnel server|"
+    r"SessionNotSetup|failed to send initial ping"
+)
 PID_FILE = Path(tempfile.gettempdir()) / "em-playitd.pid"
 
 CHECK_EVERY = 60  # sekunder mellan kollarna att tunneln finns kvar
@@ -348,13 +354,13 @@ class Playit:
             line = ANSI.sub("", line).strip()
             if not line:
                 continue
-            if PROBLEM.search(line) and shown < 10:
+            if PROBLEM.search(line) and not HARMLESS.search(line) and shown < 10:
                 shown += 1
                 log.warning("playitd: %s", line)
             else:
                 log.debug("playitd: %s", line)
         code = process.wait()
-        if not self._stopping.is_set():
+        if not self._stopping.wait(2):  # Ctrl+C stänger playitd och servern samtidigt
             log.error("playit.gg-tunneln stängdes av (felkod %s). Startar om om en stund.", code)
 
     def _restart_if_dead(self, secret: str) -> None:
@@ -407,7 +413,9 @@ class Playit:
                 )
             elif address != self.address or time.monotonic() - last_resolve > RESOLVE_EVERY:
                 last_resolve = time.monotonic()
-                self._use_address(address)
+                if not self._use_address(address) and not self.address:
+                    self._stopping.wait(10)  # adressen är ny, kolla snart igen
+                    continue
             self._stopping.wait(CHECK_EVERY)
 
     def _find_tunnel(self, tunnels: List[dict]) -> Optional[dict]:
@@ -431,28 +439,50 @@ class Playit:
         if not agent_id:
             return
         log.info("Skapar en UDP-tunnel till port %d på playit.gg...", self.port)
-        try:
-            api.call(
-                "/tunnels/create",
-                {
-                    "name": "Emergency Meeting",
-                    "tunnel_type": None,
-                    "port_type": "udp",
-                    "port_count": 1,
-                    "origin": {
-                        "type": "agent",
-                        "data": {"agent_id": agent_id, "local_ip": LOCAL_IP, "local_port": self.port},
-                    },
-                    "enabled": True,
-                    "alloc": None,
-                    "firewall_id": None,
-                    "proxy_protocol": None,
+        requests = [
+            # Så som playit.gg:s egna program gör (version 1 av anropet)
+            ("/v1/tunnels/create", {
+                "ports": {"type": "custom-udp", "details": 1},
+                "origin": {"type": "agent", "data": {
+                    "agent_id": agent_id,
+                    "config": {"fields": [
+                        {"name": "local_ip", "value": LOCAL_IP},
+                        {"name": "local_port", "value": str(self.port)},
+                    ]},
+                }},
+                "enabled": True,
+                "alloc": None,
+                "name": "Emergency Meeting",
+                "firewall_id": None,
+            }),
+            # Det äldre anropet, om det nya inte finns
+            ("/tunnels/create", {
+                "name": "Emergency Meeting",
+                "tunnel_type": None,
+                "port_type": "udp",
+                "port_count": 1,
+                "origin": {
+                    "type": "agent",
+                    "data": {"agent_id": agent_id, "local_ip": LOCAL_IP, "local_port": self.port},
                 },
-            )
+                "enabled": True,
+                "alloc": None,
+                "firewall_id": None,
+                "proxy_protocol": None,
+            }),
+        ]
+        errors = []
+        for path, body in requests:
+            try:
+                api.call(path, body)
+            except PlayitError as error:
+                log.debug("%s: %s", path, error)
+                errors.append(str(error))
+                continue
             log.info("Tunneln är skapad. Väntar på att playit.gg ger den en adress...")
-        except PlayitError as error:
-            log.info("Kunde inte skapa tunneln automatiskt (%s).", error)
-            self._ask_for_tunnel(agent_id, [])
+            return
+        log.info("Kunde inte skapa tunneln automatiskt (%s).", "; ".join(errors))
+        self._ask_for_tunnel(agent_id, [])
 
     def _ask_for_tunnel(self, agent_id: Optional[str], pending: List[dict]) -> None:
         if pending:
@@ -470,16 +500,23 @@ class Playit:
             "Servern hittar tunneln själv när den är klar.",
         ])
 
-    def _use_address(self, address: str) -> None:
+    def _use_address(self, address: str) -> bool:
+        """Slår upp adressens IP och berättar för servern. False om det inte gick."""
         parsed = parse_address(address)
         if parsed is None:
             log.warning("Förstod inte playit-adressen %r", address)
-            return
+            return False
         host, port = parsed
         ip = resolve_ipv4(host)
         if ip is None:
-            log.warning("Kunde inte slå upp %s (provar igen om en stund).", host)
-            return
+            if not self.address and "dns" not in self._shown:
+                self._shown["dns"] = time.monotonic()
+                log.info("playit.gg gör i ordning adressen %s. Det kan ta några minuter första gången...", address)
+            elif self.address:
+                log.warning("Kunde inte slå upp %s (provar igen om en stund).", host)
+            else:
+                log.debug("Väntar fortfarande på att %s ska finnas", host)
+            return False
         changed = (ip, port) != self.endpoint
         first = not self.address
         self.address, self.endpoint = address, (ip, port)
@@ -495,6 +532,7 @@ class Playit:
                 ])
             else:
                 log.info("playit-adressen är nu %s (%s:%d)", address, ip, port)
+        return True
 
     # --- Meddelanden från playit.gg ----------------------------------------
 
@@ -516,6 +554,8 @@ class Playit:
             if not isinstance(notice, dict):
                 continue
             text = str(notice.get("message", ""))
+            if status == "email-not-verified" and "email" in text.lower():
+                continue  # samma sak som rutan ovan
             link = notice.get("resolve_link")
             self._show_once(f"notice-{text}", "MEDDELANDE FRÅN PLAYIT.GG", [text] + ([str(link)] if link else []))
 

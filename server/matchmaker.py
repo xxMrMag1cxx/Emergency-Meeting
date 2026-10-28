@@ -53,6 +53,7 @@ class ServerInfo:
         self.public_ip = public_ip
         self.lobbies = lobbies
         self.tunnel_url = ""  # fylls i när tunneln är igång
+        self.fixed_url = ""  # ngrok-adressen (samma varje gång), när den är igång
         # Spelets adress via playit.gg (ip, port), när den är klar.
         self.playit_endpoint: Optional[Tuple[str, int]] = None
         self.playit_address = ""
@@ -149,15 +150,18 @@ class MatchmakerHandler(BaseHTTPRequestHandler):
         return parsed.path.rstrip("/") or "/", parsed.query
 
     def _via_https(self) -> bool:
-        """Kom förfrågan via tunneln (HTTPS) eller direkt (HTTP)?"""
+        """Kom förfrågan via en tunnel (HTTPS) eller direkt (HTTP)?"""
         if self.headers.get("X-Forwarded-Proto", "").lower() == "https":
-            return True
+            return True  # ngrok och Cloudflare
         return '"https"' in self.headers.get("Cf-Visitor", "")
 
     def _public_address(self) -> Tuple[str, int, bool]:
         """Adressen som spelet ska använda, sett från den som frågar."""
-        host = (self.headers.get("Host") or self.info.public_ip).split(":")[0]
+        host = (self.headers.get("X-Forwarded-Host") or self.headers.get("Host") or self.info.public_ip)
+        host = host.split(",")[0].strip().split(":")[0]
         if self._via_https():
+            if host in ("localhost", "127.0.0.1") and self.info.tunnel_url:
+                return self.info.tunnel_url, 443, True
             return f"https://{host}", 443, True
         return f"http://{host}", self.config.port, False
 
@@ -190,7 +194,8 @@ class MatchmakerHandler(BaseHTTPRequestHandler):
 
     def _who(self) -> str:
         via = "via HTTPS-tunneln" if self._via_https() else "direkt"
-        ip = self.headers.get("Cf-Connecting-Ip") or self.client_address[0]
+        forwarded = (self.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
+        ip = self.headers.get("Cf-Connecting-Ip") or forwarded or self.client_address[0]
         return f"{ip}, {via}"
 
     # --- Förfrågningar ---------------------------------------------------
@@ -247,8 +252,8 @@ class MatchmakerHandler(BaseHTTPRequestHandler):
                 log.info("Någon letade efter spelkod %s och hittade det", code)
                 self._send(200, {"Errors": None, "Game": self._listing(lobby)})
 
-        elif path == "/favicon.ico":
-            self._send(404, "")
+        elif path == "/favicon.ico" or path.startswith("/apple-touch-icon"):
+            self._send(404, "")  # ikoner som webbläsare letar efter av sig själva
 
         else:
             log.info("Okänd GET-förfrågan: %s", self.path)

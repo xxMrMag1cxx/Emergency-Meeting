@@ -12,3 +12,8 @@ loggar/
 
 # playit.gg: hemlig nyckel (skapas första gången)
 playit-nyckel.txt
+
+# ngrok: hemlig nyckel, adressen och programmet (hämtas av servern)
+ngrok-nyckel.txt
+ngrok-adress.txt
+ngrok/

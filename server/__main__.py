@@ -15,6 +15,7 @@ import asyncio  # noqa: E402
 import logging  # noqa: E402
 import signal  # noqa: E402
 import threading  # noqa: E402
+from typing import Optional  # noqa: E402
 
 from . import __version__  # noqa: E402
 from .config import CONFIG_FILE, PROJECT_DIR, load_config  # noqa: E402
@@ -22,6 +23,7 @@ from .game import Game  # noqa: E402
 from .hazel import HazelServer  # noqa: E402
 from .lobby import LobbyManager  # noqa: E402
 from .matchmaker import ServerInfo, start_matchmaker  # noqa: E402
+from .ngrok import Ngrok  # noqa: E402
 from .playit import Playit, find_playitd  # noqa: E402
 from .plugins import PluginManager  # noqa: E402
 from .region import region_info_json  # noqa: E402
@@ -73,24 +75,42 @@ class PluginAnnouncer:
         self.plugins.log_failures()
 
 
-def announce_tunnel(info: ServerInfo, url: str) -> None:
-    """Körs när HTTPS-adressen fungerar."""
+def announce_tunnel(info: ServerInfo, url: str, fixed: bool, changed: bool = False) -> None:
+    """
+    Körs när en HTTPS-adress fungerar. fixed = adressen är samma varje gång
+    (ngrok), annars byts den vid varje start (Cloudflare).
+    """
+    if not fixed and info.fixed_url:
+        log.info("Cloudflare-adressen %s fungerar också, men använd ngrok-adressen.", url)
+        return
     info.tunnel_url = url
+    if fixed:
+        info.fixed_url = url
     region_file = PROJECT_DIR / "regionInfo.json"
     region_file.write_text(region_info_json(info.config.server_name, url, 443), encoding="utf-8")
 
-    print_box(
-        "HTTPS ÄR KLART!",
-        [
-            "Öppna den här adressen på enheten som ska spela:",
-            f"    {url}",
-            "",
-            "Där finns en knapp som lägger till servern i Among Us.",
-            f"(En färdig {region_file.name} har också sparats i projektmappen.)",
-            "",
-            "Obs: adressen byts varje gång servern startas om.",
-        ],
-    )
+    lines = [
+        "Öppna den här adressen på enheten som ska spela:",
+        f"    {url}",
+        "",
+        "Där finns en knapp som lägger till servern i Among Us.",
+        f"(En färdig {region_file.name} har också sparats i projektmappen.)",
+        "",
+    ]
+    if not fixed:
+        lines.append("Obs: adressen byts varje gång servern startas om.")
+    elif changed:
+        lines += [
+            "OBS: adressen är ny! Alla behöver lägga till servern igen,",
+            "sedan är den samma varje gång.",
+        ]
+    else:
+        lines += [
+            "Adressen är samma varje gång servern startar, så den som",
+            "redan har lagt till servern behöver inte göra det igen.",
+            "(ngrok visar en varningssida i webbläsaren: tryck Visit Site.)",
+        ]
+    print_box("HTTPS ÄR KLART!", lines)
 
 
 async def run() -> None:
@@ -135,24 +155,48 @@ async def run() -> None:
     print("  Stäng av servern med Ctrl+C")
     print(LINE, flush=True)
 
-    tunnel = None
-    if config.https_tunnel:
-        binary = find_cloudflared(config.cloudflared_path)
-        if binary:
+    # HTTPS: ngrok (samma adress varje gång) om det går, annars Cloudflare.
+    tunnel: Optional[Tunnel] = None
+    tunnel_lock = threading.Lock()
+
+    def start_cloudflare() -> None:
+        nonlocal tunnel
+        with tunnel_lock:
+            if tunnel is not None:
+                return
+            binary = find_cloudflared(config.cloudflared_path)
+            if not binary:
+                log.warning("cloudflared saknas, så det blir ingen HTTPS-adress från Cloudflare.")
+                log.warning("Fixa det: dubbelklicka på hamta-cloudflared.command och starta om servern.")
+                announcer.announce()
+                return
+
             def tunnel_ready(url: str) -> None:
-                announce_tunnel(info, url)
+                announce_tunnel(info, url, fixed=False)
                 announcer.announce()
 
-            tunnel = Tunnel(binary, config.port, tunnel_ready)
+            new_tunnel = Tunnel(binary, config.port, tunnel_ready)
             try:
-                tunnel.start()
+                new_tunnel.start()
             except OSError as error:
                 log.error("Kunde inte starta cloudflared: %s", error)
-                tunnel = None
+                announcer.announce()
+                return
+            tunnel = new_tunnel
+
+    def ngrok_ready(url: str, changed: bool) -> None:
+        announce_tunnel(info, url, fixed=True, changed=changed)
+        announcer.announce()
+
+    ngrok = None
+    if config.https_tunnel:
+        if config.ngrok:
+            ngrok = Ngrok(config.ngrok_path, config.port, ngrok_ready, start_cloudflare, print_box)
+            if not ngrok.has_key():
+                start_cloudflare()  # första gången: Cloudflare fungerar medan värden fixar ngrok
+            ngrok.start()
         else:
-            log.warning("cloudflared saknas, så det blir ingen HTTPS-adress.")
-            log.warning("Among Us på andra enheter kan inte ansluta utan HTTPS.")
-            log.warning("Fixa det: dubbelklicka på hamta-cloudflared.command och starta om servern.")
+            start_cloudflare()
 
     playit = None
     if config.playit:
@@ -164,7 +208,7 @@ async def run() -> None:
             log.info("playit.gg finns inte här, så spelet nås bara från ert wifi.")
             log.info("Se \"Spela med kompisar hemifrån\" i README.md för hur man fixar det.")
 
-    if tunnel is None:
+    if not config.https_tunnel:
         announcer.announce()
     else:
         loop.call_later(PluginAnnouncer.FALLBACK_SECONDS, announcer.announce)
@@ -175,6 +219,8 @@ async def run() -> None:
         await hazel.maintenance_loop()
     finally:
         cleanup.cancel()
+        if ngrok:
+            ngrok.stop()
         if tunnel:
             tunnel.stop()
         if playit:
@@ -184,7 +230,7 @@ async def run() -> None:
 
 
 def _stop_on_signal(signum, frame) -> None:
-    raise KeyboardInterrupt  # stäng av snyggt, så att playitd och cloudflared också stängs
+    raise KeyboardInterrupt  # stäng av snyggt, så att playitd, ngrok och cloudflared också stängs
 
 
 def main() -> None:

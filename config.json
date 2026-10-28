@@ -4,6 +4,8 @@
     "port": 22023,
     "public_ip": "auto",
     "https_tunnel": true,
+    "ngrok": true,
+    "ngrok_path": "auto",
     "cloudflared_path": "auto",
     "playit": true,
     "playit_path": "auto",

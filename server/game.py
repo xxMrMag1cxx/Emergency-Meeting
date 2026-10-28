@@ -787,7 +787,7 @@ class Game:
         """Om någon hämtat en token men aldrig anslutit: säg till, det är ett vanligt fel."""
         now = time.monotonic()
         for name, (when, who) in list(self.lobbies.waiting_for_udp.items()):
-            if now - when > 10:
+            if now - when > 30:  # via mobildata kan det ta 10-15 sekunder
                 del self.lobbies.waiting_for_udp[name]
                 log.warning(
                     "%s (%s) nådde servern via HTTPS men anslöt aldrig till spelet via UDP.",
@@ -795,8 +795,9 @@ class Game:
                     who,
                 )
                 log.warning(
-                    "  Kolla att enheten är på samma wifi som Macen. På iPhone: "
-                    "Inställningar > Integritet och säkerhet > Lokalt nätverk > slå på Among Us."
+                    "  Om ni spelar via playit.gg: vänta tills rutan PLAYIT ÄR KLART! har visats. "
+                    "Annars: kolla att enheten är på samma wifi som Macen (på iPhone: "
+                    "Inställningar > Integritet och säkerhet > Lokalt nätverk > slå på Among Us)."
                 )
 
     # =====================================================================

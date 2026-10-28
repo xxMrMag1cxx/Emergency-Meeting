@@ -37,9 +37,17 @@ class Config:
     # i hemnätverket (t.ex. 192.168.1.23).
     public_ip: str = "auto"
 
-    # Starta en HTTPS-tunnel med cloudflared (krävs för att Among Us
-    # ska kunna ansluta från en annan enhet än Macen).
+    # Starta en HTTPS-tunnel (krävs för att Among Us ska kunna ansluta
+    # från en annan enhet än Macen). Med ngrok om det går, annars cloudflared.
     https_tunnel: bool = True
+
+    # Använd ngrok för HTTPS, så att adressen är samma varje gång.
+    # false = använd bara Cloudflare (adressen byts vid varje start).
+    ngrok: bool = True
+
+    # Var ngrok finns. "auto" = leta själv (mappen ngrok/ först) och hämta
+    # programmet om det saknas.
+    ngrok_path: str = "auto"
 
     # Var cloudflared finns. "auto" = leta själv (projektmappen först).
     cloudflared_path: str = "auto"
