@@ -1,0 +1,14 @@
+name: Idea
+description: Suggest something new for the server or the join page
+labels: [idea]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What's your idea?
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why would it be good?

@@ -46,6 +46,6 @@ elif [ "$CHIP" = "arm64" ] && [ "$FILE" = "cloudflared-darwin-amd64.tgz" ]; then
     ./cloudflared --version && echo "Done! Restart the server (start.command)."
 else
     echo "cloudflared was downloaded but could not be started on this Mac."
-    echo "Send this error message to Claude and we'll find a solution."
+    echo "Report it with this error message at https://github.com/xxMrMag1cxx/Emergency-Meeting/issues"
 fi
 read -r -p "Press Enter to close..."

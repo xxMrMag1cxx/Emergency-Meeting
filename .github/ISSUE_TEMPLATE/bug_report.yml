@@ -1,0 +1,45 @@
+name: Bug report
+description: Something doesn't work as it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping! **Never paste your keys** (the contents of
+        `ngrok-key.txt` or `playit-key.txt`) in an issue. If one has been
+        shown anyway, reset it (see the README).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Emergency Meeting version
+      description: It's at the top of the Terminal window, for example 0.13.0-alpha.
+    validations:
+      required: true
+  - type: input
+    id: mac
+    attributes:
+      label: Mac and macOS version
+      description: For example "MacBook Pro (Intel), macOS 12.7".
+  - type: input
+    id: devices
+    attributes:
+      label: Devices that played
+      description: For example "iPhone, Among Us 2026.7.21" or "PC (Steam)".
+  - type: textarea
+    id: terminal
+    attributes:
+      label: Text from the Terminal window
+      description: Copy the text from the server's Terminal window. Check that no key is in it.
+      render: text
+  - type: textarea
+    id: report
+    attributes:
+      label: Report from the logs folder
+      description: If someone was disconnected, attach the newest file from the `logs/` folder.

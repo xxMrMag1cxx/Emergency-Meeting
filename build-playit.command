@@ -44,7 +44,7 @@ tar -xzf "$WORK/src.tar.gz" -C "$WORK" || stop "The source code could not be unp
 
 echo "Building (this takes a while) ..."
 (cd "$WORK/playit-agent-$VERSION" && MACOSX_DEPLOYMENT_TARGET=11.0 cargo build --release --locked -p playitd) \
-    || stop "The build failed. Send the error message above to Claude and we'll find a solution."
+    || stop "The build failed. Report it with the error message above at https://github.com/xxMrMag1cxx/Emergency-Meeting/issues"
 
 cp "$WORK/playit-agent-$VERSION/target/release/playitd" "$PROJECT/playit/playitd-macos"
 cp "$WORK/playit-agent-$VERSION/LICENSE.txt" "$PROJECT/playit/LICENSE-playit.txt"
@@ -55,6 +55,6 @@ echo
 if "$PROJECT/playit/playitd-macos" --help >/dev/null 2>&1; then
     echo "Done! Restart the server (start.command)."
 else
-    echo "playitd was built but could not be started. Send this to Claude."
+    echo "playitd was built but could not be started. Report it with this text at https://github.com/xxMrMag1cxx/Emergency-Meeting/issues"
 fi
 read -r -p "Press Enter to close..."

@@ -1,37 +1,58 @@
 # Emergency Meeting
 
-Our own Among Us server, built from scratch in Python. The server runs on a
-Mac (macOS 12.7 Monterey or newer) and the goal is for it to run the game
-with our own plugins.
+> **Alpha:** Emergency Meeting works on macOS, but expect bugs.
+> [Report them here](https://github.com/xxMrMag1cxx/Emergency-Meeting/issues).
 
-## Roadmap
+Emergency Meeting is an Among Us server you run on your own Mac. You and your
+friends join it from your phones, tablets and computers, at home or from your
+own homes, without changing anything in the router. It's written from scratch
+in Python, using only what comes with Python, and it has its own plugin system.
 
-- [x] **Step 1:** The server receives the game, reads the player's name and
-      version, and answers with its own message that shows up in the game
-- [x] **Step 2:** HTTPS through a Cloudflare tunnel, so that the game can
-      connect from other devices
-- [x] **Step 3:** Host a game, get a game code and get into the lobby
-      (needs testing with the real game)
-- [x] **Step 3b:** The log shows every change of the game settings
-- [ ] **Step 4:** Join a game with the game code, several players in the same
-      lobby (done in the server, needs testing with two devices)
-- [x] **Step 5:** Play a whole round and "Play Again". The log shows meetings,
-      deaths and votes, and a summary when the round is over
-      (needs testing with the real game)
-- [x] **Step 6:** Our own plugin system, see [plugins/README.md](plugins/README.md)
-- [x] **Step 7:** Impostors can kill (the server decides, like Among Us's own
-      servers). Bots walk around in the lobby and on all maps and walk to
-      their tasks (needs testing with the real game)
-- [x] **Step 8:** Friends can play from their own homes, on a computer or a
-      phone, through playit.gg. Nothing needs to be changed in the router
-- [x] **Step 9:** An HTTPS address that is the same every time (ngrok), so
-      that friends only have to add the server once
-- [x] **Step 10:** A join page that shows the right steps for every device,
-      the game codes, a QR code and a ready-made message for friends
-- [x] **Step 11:** Our own name for the server, commands in the Terminal
-      window (`/help`) and colors in the log (needs testing on the Mac)
-- [x] **Step 12:** Everything in English, and the Terminal window in English
-      or Swedish (needs testing on the Mac)
+<p align="center">
+  <img src="docs/terminal.png" alt="The server's Terminal window with the box SERVER IS ONLINE! and a game with two bots" width="560">
+  <img src="docs/join-page.png" alt="The join page on an iPhone, with the steps to add the server and a game code" width="230">
+</p>
+
+## Features
+
+- **Host and play** whole rounds: game codes, meetings, votes and kills (the
+  server decides kills, like Among Us's own servers)
+- **Friends can join from anywhere**, on wifi or mobile data, through
+  [playit.gg](https://playit.gg) and [ngrok](https://ngrok.com). Both are free
+  and nothing needs to be changed in the router
+- **A join page** that shows the right steps for iPhone/iPad, Android, PC and
+  Mac, the games on the server, a QR code and a ready-made message to send
+  to friends
+- **Plugins** in Python that react to what happens in the game, and bots that
+  walk around and do tasks
+- **A Terminal window** with colors, commands (`/help`) and English or Swedish
+
+## Requirements
+
+- A Mac with **macOS 12 Monterey or newer** (Intel or Apple silicon). So far
+  it's tested on a MacBook Pro (Intel) with macOS 12.7
+- **Python 3.8 or newer** (see [step 1](#1-check-that-python-is-there))
+- Free accounts at **ngrok** and **playit.gg**, so that friends can join from
+  their own homes (without them, only devices on your wifi can join)
+- **Among Us** on iPhone/iPad, Android, PC (Steam, Epic, Microsoft Store) or a
+  Mac with Apple silicon. Consoles (Switch, Xbox, PlayStation) can't join
+  custom servers
+
+## Quick start
+
+1. Download the latest version from
+   [Releases](https://github.com/xxMrMag1cxx/Emergency-Meeting/releases)
+   (**Source code (zip)** under Assets) and unpack it.
+2. Double-click **`start.command`**. The first time, it asks for the language,
+   a name for your server, a key from ngrok and a link to approve on
+   playit.gg.
+3. When the box **SERVER IS ONLINE!** shows up, open the join page address on
+   your phone (or scan the QR code), tap **Add to Among Us** and restart
+   Among Us.
+4. Choose your server under the globe in Among Us and tap **Create Game**.
+   Send the join page to your friends.
+
+The rest of this README explains every step in detail.
 
 ## Get started on the Mac
 
@@ -47,28 +68,17 @@ If it says `Python 3.8` or higher, everything is ready. If it says something
 else, download the latest Python from <https://www.python.org/downloads/macos/>
 (choose "macOS 64-bit universal2 installer") and install it.
 
-The server only uses what comes with Python.
-
 ### 2. Get the code
 
-On the project's GitHub page: click the green **Code** button and choose
-**Download ZIP**. Unpack the folder. It doesn't matter where it ends up, all
-the files below are started with a double-click in Finder.
+Download the latest version from
+[Releases](https://github.com/xxMrMag1cxx/Emergency-Meeting/releases): under
+**Assets**, click **Source code (zip)**. Unpack it. It doesn't matter where the folder ends up, all the files below
+are started with a double-click in Finder.
 
 > The first time macOS says a file can't be opened because it comes from the
 > internet: right-click the file, choose **Open** and then **Open** again.
 
-### 3. Get cloudflared (once)
-
-Double-click **`get-cloudflared.command`**.
-
-Among Us requires HTTPS when the game and the server are on different
-devices. The server prefers ngrok (see below), and cloudflared is the backup
-if ngrok doesn't work. cloudflared gives a free HTTPS address through
-Cloudflare, without an account. The script picks a version that works on
-your macOS by itself.
-
-### 4. Start the server
+### 3. Start the server
 
 Double-click **`start.command`**. If macOS asks if Python may accept
 incoming connections, choose **Allow**.
@@ -94,18 +104,31 @@ for example:
 https://happy-penguin-1234.ngrok-free.dev
 ```
 
-With ngrok the address is the same every time. Without ngrok it becomes a
-Cloudflare address (`...trycloudflare.com`) that changes every start.
-
-When everything is ready, the box **SERVER IS ONLINE!** appears. Then you can
-join.
+The address is the same every time the server starts. When everything is
+ready, the box **SERVER IS ONLINE!** appears. Then you can join, see
+[Connecting with Among Us](#connecting-with-among-us).
 
 Stop the server with **Ctrl+C** (or type `/stop`).
 
+### 4. Get cloudflared (optional backup)
+
+If ngrok doesn't work, the server can use a free HTTPS address from
+Cloudflare instead (no account needed, but the address changes every start).
+Double-click **`get-cloudflared.command`** once to download the program
+`cloudflared`. The script picks a version that works on your macOS by itself.
+
+### 5. Test without the game (optional)
+
+Leave the server running and double-click **`test.command`**. The test client
+pretends to be two Among Us players: one hosts a game, the other joins with
+the game code. If everything works it prints `Everything works!`.
+
 ### Updating to a new version
 
-Download the code as a ZIP again and move these from the old folder, so
-that you don't have to redo the things that are only needed the first time:
+Download the new ZIP from
+[Releases](https://github.com/xxMrMag1cxx/Emergency-Meeting/releases) and move
+these from the old folder, so that you don't have to redo the things that are
+only needed the first time:
 
 - `config.json` (the settings, the server's name and language)
 - `playit-key.txt`, `ngrok-key.txt` and `ngrok-address.txt`
@@ -116,51 +139,10 @@ that you don't have to redo the things that are only needed the first time:
 > `loggar` folder). Just move them over as they are, the server gives them
 > their new names by itself.
 
-## Language
-
-Everything in Emergency Meeting is in English: the code, the join page, the
-files and the chat messages in the game. Only the server's **Terminal window**
-(the one `start.command` opens) can be in Swedish instead.
-
-The language is chosen the first time the server starts. Change it with
-`/language English` or `/language Swedish` while the server is running, or
-with `"language"` in `config.json`. The change is saved in `config.json`.
-
-The translations are in `server/locales/sv.json`. Run
-`python3 tools/check_translations.py` to find text that has no translation
-yet. Plugins can bring their own translations, see
-[plugins/README.md](plugins/README.md).
-
-## Commands
-
-While the server is running you can type commands in the Terminal window and
-press Enter:
-
-| Command | What it does |
-|---------|--------------|
-| `/help` | Shows all commands |
-| `/changeservername <name>` | Changes the server's name, for example `/changeservername Blobi's server` |
-| `/games` | Shows the games on the server with game code, number of players and map |
-| `/address` | Shows the join page's address and the QR code again |
-| `/say <message>` | Sends a chat message to everyone in all games |
-| `/language <English\|Swedish>` | Changes the language in the Terminal window |
-| `/stop` | Stops the server (the same as Ctrl+C) |
-
-When the server changes its name, the region in `regionInfo.json`, the button
-on the join page and the heading change right away. Those who have already
-added the server see the old name in Among Us until they add the server
-again from the join page. You can play anyway, the address is the same.
-
-### 5. Test without the game (optional)
-
-Leave the server running and double-click **`test.command`**. The test client
-pretends to be two Among Us players: one hosts a game, the other joins with
-the game code. If everything works it prints `Everything works!`.
-
 ## Connecting with Among Us
 
-With playit.gg (see the next part) the player can be anywhere. Without
-playit.gg the device must be on the **same wifi** as the Mac.
+With playit.gg (see [below](#play-with-friends-from-home)) the player can be
+anywhere. Without playit.gg the device must be on the **same wifi** as the Mac.
 
 1. Open the HTTPS address the server printed in a browser on the device
    that will play, or scan the QR code in the Terminal window with the
@@ -169,8 +151,11 @@ playit.gg the device must be on the **same wifi** as the Mac.
    Mac). On phones it's enough to tap the button **Add to Among Us**. On a
    PC you download `regionInfo.json`, and the page has a button that copies
    the address of the folder where the file should go.
-3. Restart Among Us completely, choose the server **Emergency Meeting** and
-   tap **Create Game**, or **Enter Code** and type in a code.
+3. Restart Among Us completely, choose your server under the globe and tap
+   **Create Game**, or **Enter Code** and type in a code.
+
+You only have to do steps 1–2 once. After that, you just choose the server
+in Among Us.
 
 ### The join page
 
@@ -188,14 +173,12 @@ The join page has three parts:
 If you open `http://localhost:22023` on the Mac, it shows the address the
 friends should use, with a big QR code, the games and the message.
 
-With ngrok you only have to do steps 1–2 once. With a Cloudflare address
-the address changes every restart, and then you have to redo steps 1–2.
-
 ## Fixed HTTPS address with ngrok
 
-**ngrok** (free) gives the server an HTTPS address that is the same every
-time, for example `https://happy-penguin-1234.ngrok-free.dev`. Then friends
-only have to add the server to Among Us once.
+Among Us requires HTTPS when the game and the server are on different
+devices. **ngrok** (free) gives the server an HTTPS address that is the same
+every time, for example `https://happy-penguin-1234.ngrok-free.dev`. Then
+friends only have to add the server to Among Us once.
 
 ### The first time (only the host)
 
@@ -211,11 +194,9 @@ only have to add the server to Among Us once.
    **HTTPS IS READY!** with the new address.
 
 The key is saved in `ngrok-key.txt` and the address in `ngrok-address.txt`.
-Don't share the key with anyone (the file is already excluded in
-`.gitignore`).
 
-Until the key is pasted, Cloudflare is used, so the server works anyway.
-Just press Enter if you want to skip ngrok that time.
+Until the key is pasted, Cloudflare is used (if you have downloaded
+cloudflared). Just press Enter if you want to skip ngrok that time.
 
 ### Good to know
 
@@ -251,19 +232,16 @@ time.
 4. When the box **PLAYIT IS READY!** shows up, everything is ready.
 
 The server saves a secret key in `playit-key.txt`. After that everything
-happens by itself every time the server starts. Don't share the file with
-anyone, and don't put it on GitHub (it's already excluded in `.gitignore`).
+happens by itself every time the server starts.
 
 ### How friends join
 
 Just like on wifi: they open the HTTPS address the server printed, tap
-**Add to Among Us**, restart the game, choose **Emergency Meeting** and type
-in the game code. Send them the address in a chat.
+**Add to Among Us**, restart the game, choose your server and type in the
+game code. Send them the address in a chat (the join page has a ready-made
+message). The next time they just choose your server in the game.
 
-With ngrok they only do that once. The next time they just choose
-**Emergency Meeting** in the game and type in the game code.
-
-Phones no longer need the "Local Network" permission, because the game goes
+Phones don't need the "Local Network" permission, because the game goes
 through the internet instead of directly to the Mac.
 
 ### If something goes wrong
@@ -272,9 +250,44 @@ through the internet instead of directly to the Mac.
   (for example if the server was removed on playit.gg). Delete
   `playit-key.txt` and restart the server, and a new link comes up.
 - **"playit.gg isn't here"** in the log: the file `playit/playitd-macos` is
-  missing. Download the code as a ZIP again, or double-click
-  `build-playit.command` (see [playit/README.md](playit/README.md)).
+  missing. Download the ZIP again, or double-click `build-playit.command`
+  (see [playit/README.md](playit/README.md)).
 - If you only want to play on your wifi: set `"playit": false` in `config.json`.
+
+## Language
+
+Everything in Emergency Meeting is in English: the join page, the files and
+the chat messages in the game. Only the server's **Terminal window** (the one
+`start.command` opens) can be in Swedish instead.
+
+The language is chosen the first time the server starts. Change it with
+`/language English` or `/language Swedish` while the server is running, or
+with `"language"` in `config.json`. The change is saved in `config.json`.
+
+The translations are in `server/locales/sv.json`. Run
+`python3 tools/check_translations.py` to find text that has no translation
+yet. Plugins can bring their own translations, see
+[plugins/README.md](plugins/README.md).
+
+## Commands
+
+While the server is running you can type commands in the Terminal window and
+press Enter:
+
+| Command | What it does |
+|---------|--------------|
+| `/help` | Shows all commands |
+| `/changeservername <name>` | Changes the server's name, for example `/changeservername Friday Night Games` |
+| `/games` | Shows the games on the server with game code, number of players and map |
+| `/address` | Shows the join page's address and the QR code again |
+| `/say <message>` | Sends a chat message to everyone in all games |
+| `/language <English\|Swedish>` | Changes the language in the Terminal window |
+| `/stop` | Stops the server (the same as Ctrl+C) |
+
+When the server changes its name, the region in `regionInfo.json`, the button
+on the join page and the heading change right away. Those who have already
+added the server see the old name in Among Us until they add the server
+again from the join page. You can play anyway, the address is the same.
 
 ## What the log shows
 
@@ -288,7 +301,6 @@ The server prints what happens, for example:
 15:03:30  game    Kalle joined NUORZH as player (2/10 players)
 15:03:41  game    NUORZH chat  Kalle: hi!
 15:05:02  game    NUORZH: the game is starting! (4 players, The Skeld)
-15:05:31  bot     Bot_1 did a task (Fix Wiring) (1/4)
 15:06:10  game    NUORZH: Bot_2 has been killed! (1 dead)
 15:06:30  game    NUORZH: MEETING! Blobi found Bot_2
 15:07:05  game    NUORZH: Bot_1 was voted out
@@ -308,30 +320,6 @@ errors red. The colors follow whether the Mac is in dark or light mode. If
 you want other colors or none, there are `color_theme` and `colors` in
 `config.json`.
 
-## Killing
-
-In Among Us it's the server, not the host, that decides if an impostor may
-kill. The game asks the server ("CheckMurder"), the server checks that the
-killer is a living impostor, that the victim is alive and isn't an impostor
-and that no meeting is going on, and then sends "MurderPlayer" to everyone.
-If a Guardian Angel has protected the victim, the kill fails. The server
-also handles the Phantom's "vanish" and "appear" the same way.
-
-## Bots that walk
-
-Bots (from the bot plugin) walk around in the lobby and on the map. During a
-round they walk to their tasks, stand at the console for a while and do the
-task. When everything is done they wander between the rooms. In meetings
-they stand at the table and vote skip when the discussion time is over.
-
-The maps are in `server/mapdata/`: the walls, where the tasks are done and
-where the players start. The server splits the map into small cells and finds
-a path around the walls (see `server/navigation.py`). The Skeld, MIRA HQ,
-Polus, dlekS ehT and The Airship have real walls. On The Fungle only some of
-the walls are included, so there a bot can sometimes walk through a tree or a
-rock. On The Airship bots can't climb ladders or ride the platform, so they do
-the tasks they can walk to.
-
 The settings have the same names as in the game's menu. If the game gets a
 new setting that the server doesn't know about, it says "Other settings".
 
@@ -342,10 +330,10 @@ A plugin is a Python file that can react to things that happen (someone
 joins, writes in the chat, changes settings...) and send chat messages or
 add bots itself.
 
-Ready-made plugins are in
-[Common Emergency Meeting Plugins (CEMP)](https://github.com/xxMrMag1cxx/Common-Emergency-Meeting-Plugins).
-Download that repo as a ZIP, unpack it and put the whole folder in
-`plugins/`. Then restart the server.
+An easy way to get started with plugins is by downloading
+[CEMP (Common Emergency Meeting Plugins)](https://github.com/xxMrMag1cxx/Common-Emergency-Meeting-Plugins),
+our collection of ready-made plugins. Download it as a ZIP, unpack it, put
+the whole folder in `plugins/` and restart the server.
 
 How to write your own plugins is in [plugins/README.md](plugins/README.md).
 
@@ -374,7 +362,98 @@ time the server starts. Change it with TextEdit when the server is off.
 | `color_theme`      | `auto` = follow the Mac's dark/light mode, `dark` = for a black background, `light` = for a white background |
 | `debug`            | `true` = show every packet in the log, good for troubleshooting |
 
-## How the code is organized
+## Known limitations
+
+This is an alpha, so some things are missing or rough:
+
+- Only tested on macOS. Linux will probably work, Windows isn't supported yet.
+- Consoles (Switch, Xbox, PlayStation) can't join, because they don't allow
+  custom servers.
+- Anyone who has the join page address can add the server. They still need
+  a game code to join a game, so only share the address with friends.
+- The Mac has to be awake and running the server while you play.
+- Bots can't climb ladders or ride the platform on The Airship, and on
+  The Fungle only some of the walls are known, so a bot can sometimes walk
+  through a tree or a rock. Bots also walk a little faster than the
+  Player Speed setting.
+- Everyone should have the same (or almost the same) version of Among Us as
+  the host. The server warns in the log if the versions differ.
+
+## Troubleshooting
+
+- **Black screen and nothing happens in the server window**: the game doesn't
+  reach the server. Check that you use the HTTPS address from the *latest*
+  start of the server. With ngrok the address is the same every time, but if
+  the box **HTTPS IS READY!** shows a `trycloudflare.com` address, the server
+  has used Cloudflare instead.
+- **NGROK DOESN'T RECOGNIZE THE KEY**: paste a new key from
+  <https://dashboard.ngrok.com/get-started/your-authtoken> in the Terminal window.
+- **NGROK IS ALREADY IN USE**: the ngrok account is used by another computer
+  or program. Close it and restart the server.
+- **"tried to connect with HTTPS directly to port 22023"** in the log: the game
+  is set to the Mac's IP address instead of the HTTPS address. Add the server
+  again through the HTTPS address.
+- **"reached the server over HTTPS but never connected to the game over UDP"**
+  in the log: the device reaches the server over the internet but not the game
+  itself. Check that the box **PLAYIT IS READY!** has been shown. Without
+  playit.gg the device must be on the same wifi, and on an iPhone: Settings →
+  Privacy & Security → Local Network → turn on Among Us.
+- **A token is fetched but nothing more happens**: the game reaches the HTTPS
+  part but not UDP. Check that the device is on the same wifi and that the
+  firewall allows Python (System Preferences → Security & Privacy → Firewall).
+- **The game gets stuck after Create Game** or the lobby looks strange: set
+  `"debug": true` in `config.json`, try again and save the log. It shows
+  exactly what the game and the server send to each other.
+- **"Address already in use"**: the server is already running in another
+  window. Close it.
+- **Someone is disconnected unexpectedly**: every time a player in a game is
+  disconnected, a report is saved in the `logs/` folder with the latest
+  messages between the game and the server. Attach that file when you report
+  the problem.
+
+Found a bug? [Open an issue](https://github.com/xxMrMag1cxx/Emergency-Meeting/issues)
+with the text from the Terminal window and, if someone was disconnected, the
+file from `logs/`.
+
+## Keep your keys secret
+
+`ngrok-key.txt` and `playit-key.txt` give access to your ngrok and playit.gg
+accounts. Don't share them, and don't paste them in issues or screenshots.
+They are excluded in `.gitignore`, so they don't end up on GitHub if you put
+your own copy of the server there.
+
+## How it works
+
+```
+Among Us --HTTPS--> ngrok -------tunnel--> ngrok -------HTTP---> the server (TCP 22023)
+Among Us --UDP----> playit.gg ---tunnel--> playitd -----UDP----> the server (UDP 22023)
+```
+
+If ngrok doesn't work, HTTPS goes through Cloudflare instead (the program
+cloudflared). Without playit.gg (or if the game asks the server directly,
+without HTTPS) UDP goes directly from the game to the Mac on your wifi.
+
+1. The game asks the server over **HTTPS**: "Can I have a token?" and "Where
+   should I host the game?". The server answers with the playit.gg address
+   (or the Mac's address on the home network if playit.gg isn't used).
+2. The game sends a **Hello** packet to the server over **UDP** with its
+   name and version.
+3. The game sends **HostGame** with the settings. The server creates a lobby
+   and answers with the game code.
+4. The game sends **JoinGame** with the code. The server answers
+   **JoinedGame**, and the first one to join becomes the host.
+5. The game loads the lobby. The server creates a **player info** object for
+   the player (where the game saves name, color and hat).
+6. After that the host sends **GameData** all the time (movements, color
+   changes, chat...). The server passes it all on to the others in the lobby.
+
+Most of the game logic runs at the host. The server keeps track of who is in
+which game, passes the messages on, and decides kills: the game asks the
+server ("CheckMurder"), and the server checks that the killer is a living
+impostor, that the victim is alive and isn't an impostor and that no meeting
+is going on, before it sends "MurderPlayer" to everyone.
+
+### How the code is organized
 
 ```
 server/
@@ -405,6 +484,7 @@ server/
   protocol.py    all numbers and names Among Us uses
 plugins/         plugins that the server loads (see plugins/README.md)
 playit/          playitd, playit.gg's tunnel program (see playit/README.md)
+docs/            the pictures in this README
 tools/
   testclient.py         two pretend Among Us games that test the server (host,
                         join, change color, change settings, chat, leave)
@@ -416,68 +496,7 @@ build-playit.command        builds playitd on the Mac (rarely needed)
 .github/workflows/          GitHub builds playitd for Mac
 ```
 
-This is how a connection works:
-
-```
-Among Us --HTTPS--> ngrok -------tunnel--> ngrok -------HTTP---> the server (TCP 22023)
-Among Us --UDP----> playit.gg ---tunnel--> playitd -----UDP----> the server (UDP 22023)
-```
-
-If ngrok doesn't work, HTTPS goes through Cloudflare instead (the program
-cloudflared). Without playit.gg (or if the game asks the server directly,
-without HTTPS) UDP goes directly from the game to the Mac on your wifi.
-
-1. The game asks the server over **HTTPS**: "Can I have a token?" and "Where
-   should I host the game?". The server answers with the playit.gg address
-   (or the Mac's address on the home network if playit.gg isn't used).
-2. The game sends a **Hello** packet directly to the Mac over **UDP** with its
-   name and version.
-3. The game sends **HostGame** with the settings. The server creates a lobby
-   and answers with the game code.
-4. The game sends **JoinGame** with the code. The server answers
-   **JoinedGame**, and the first one to join becomes the host.
-5. The game loads the lobby. The server creates a **player info** object for
-   the player (where the game saves name, color and hat).
-6. After that the host sends **GameData** all the time (movements, color
-   changes, chat...). The server passes it all on to the others in the lobby.
-
-So most of the game logic runs at the host. The server is mostly a mail
-carrier that keeps track of who is in which game.
-
-## Troubleshooting
-
-- **Black screen and nothing happens in the server window**: the game doesn't
-  reach the server. Check that you use the HTTPS address from the *latest*
-  start of the server. With ngrok the address is the same every time, but if
-  the box **HTTPS IS READY!** shows a `trycloudflare.com` address, the server
-  has used Cloudflare instead.
-- **NGROK DOESN'T RECOGNIZE THE KEY**: paste a new key from
-  <https://dashboard.ngrok.com/get-started/your-authtoken> in the Terminal window.
-- **NGROK IS ALREADY IN USE**: the ngrok account is used by another computer
-  or program. Close it and restart the server.
-- **"tried to connect with HTTPS directly to port 22023"** in the log: the game
-  is set to the Mac's IP address instead of the HTTPS address. Add the server
-  again through the HTTPS address.
-- **"reached the server over HTTPS but never connected to the game over UDP"**
-  in the log: the device reaches the server over the internet but not the game
-  itself. Check that the box **PLAYIT IS READY!** has been shown. Without
-  playit.gg the device must be on the same wifi, and on an iPhone: Settings →
-  Privacy & Security → Local Network → turn on Among Us.
-- **A token is fetched but nothing more happens**: the game reaches the HTTPS
-  part but not UDP. Check that the device is on the same wifi and that the
-  firewall allows Python (System Preferences → Security & Privacy → Firewall).
-- **The game gets stuck after Create Game** or the lobby looks strange: set
-  `"debug": true` in `config.json`, try again and save the log. It shows
-  exactly what the game and the server send to each other.
-- **"Address already in use"**: the server is already running in another
-  window. Close it.
-- **The game says wrong version**: write down which version the game has
-  (it's at the top left in the main menu) and what the log shows.
-- **Someone is disconnected unexpectedly**: every time a player in a game is
-  disconnected, a report is saved in the `logs/` folder with the latest
-  messages between the game and the server. Send that file, and it's
-  possible to see what happened just before.
-- Set `"debug": true` in `config.json` to see everything that is sent.
+All versions and what changed are in [CHANGELOG.md](CHANGELOG.md).
 
 ## Thanks
 
@@ -486,5 +505,18 @@ The protocol was mapped with the help of the open project
 reference. No code is copied from there.
 
 The map data in `server/mapdata/` comes from other open projects, see
-[server/mapdata/README.md](server/mapdata/README.md). Those projects have
-the GPL-3.0 license, and the map data has the same license.
+[server/mapdata/README.md](server/mapdata/README.md).
+
+## License
+
+Emergency Meeting is free software under the
+[GNU General Public License v3.0](LICENSE). You may use, change and share it,
+as long as what you share is under the same license.
+
+- The map data in `server/mapdata/` is also GPL-3.0 (from the projects listed
+  in [server/mapdata/README.md](server/mapdata/README.md)).
+- `playit/playitd-macos` is built from playit.gg's open source code and has
+  its own license, BSD-2-Clause (`playit/LICENSE-playit.txt`).
+
+Emergency Meeting is a fan project and has nothing to do with Innersloth.
+Among Us is a trademark of Innersloth LLC.
