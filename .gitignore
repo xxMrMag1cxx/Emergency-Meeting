@@ -17,3 +17,6 @@ playit-nyckel.txt
 ngrok-nyckel.txt
 ngrok-adress.txt
 ngrok/
+
+# Inställningarna skapas första gången servern startar (med serverns namn)
+config.json

@@ -214,12 +214,15 @@ class Ngrok:
         on_ready: Callable[[str, bool], None],
         on_failed: Callable[[], None],
         show: Callable[[str, List[str]], None],
+        ask: Optional[Callable[[bool], Optional[str]]] = None,
     ):
         self.setting = setting
         self.port = port
         self.on_ready = on_ready  # (url, adressen har ändrats sedan förra gången)
         self.on_failed = on_failed
         self.show = show
+        # Läser en rad från terminalen (servern delar den med kommandona).
+        self.ask = ask
         self.url = ""
         self.process: Optional[subprocess.Popen] = None
         self._stopping = threading.Event()
@@ -316,8 +319,10 @@ class Ngrok:
         ])
         for _ in range(3):
             try:
-                text = _read_hidden_line()
+                text = self.ask(True) if self.ask else _read_hidden_line()
             except (OSError, ValueError):
+                return None
+            if text is None:
                 return None
             if self._stopping.is_set():
                 return None

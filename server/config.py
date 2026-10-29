@@ -1,17 +1,20 @@
 """
 Inställningar för servern.
 
-Inställningarna läses från filen config.json i projektmappen.
-Om filen saknas används standardvärdena nedan.
+Inställningarna läses från filen config.json i projektmappen. Filen skapas
+första gången servern startar (då frågar servern också efter ett namn),
+med standardvärdena nedan. Ändra i den med en texteditor.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import socket
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Dict
 
 log = logging.getLogger("config")
 
@@ -68,6 +71,13 @@ class Config:
     # Visa HTTPS-adressen som QR-kod i Terminal-fönstret.
     terminal_qr: bool = True
 
+    # Färger i Terminal-fönstret.
+    colors: bool = True
+
+    # Vilka färger: "auto" (följer Macens mörka/ljusa läge), "dark" (för svart
+    # bakgrund) eller "light" (för vit bakgrund).
+    color_theme: str = "auto"
+
     # Sätt till true för att se varenda paket i loggen (bra för felsökning).
     debug: bool = False
 
@@ -93,24 +103,53 @@ def detect_local_ip() -> str:
         return "127.0.0.1"
 
 
+def config_exists() -> bool:
+    return CONFIG_FILE.exists()
+
+
+# Inställningar i filen som servern inte känner till (sparas tillbaka orörda).
+_unknown: Dict[str, object] = {}
+
+
 def load_config() -> Config:
     config = Config()
+    _unknown.clear()
 
     if not CONFIG_FILE.exists():
-        log.info("Hittade ingen config.json, använder standardinställningar.")
         return config
 
     try:
         data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as error:
+    except (OSError, json.JSONDecodeError) as error:
         log.error("config.json går inte att läsa: %s", error)
         log.error("Kolla att alla citattecken och komman stämmer. Använder standardvärden.")
+        config._broken = True  # type: ignore[attr-defined]  # skriv inte över filen
         return config
 
     for key, value in data.items():
-        if hasattr(config, key):
+        if hasattr(config, key) and not key.startswith("_"):
             setattr(config, key, value)
         else:
+            _unknown[key] = value
             log.warning("Okänd inställning i config.json: %s (ignoreras)", key)
 
+    # Nya inställningar från en nyare version läggs till i filen, så att de syns där.
+    known = {f.name for f in dataclasses.fields(Config)}
+    if not known.issubset(data):
+        save_config(config)
     return config
+
+
+def save_config(config: Config) -> bool:
+    """Sparar inställningarna i config.json. Returnerar False om det inte gick."""
+    if getattr(config, "_broken", False):
+        log.warning("config.json har ett fel, så ändringen sparades inte i filen.")
+        return False
+    data = dataclasses.asdict(config)
+    data.update(_unknown)
+    try:
+        CONFIG_FILE.write_text(json.dumps(data, indent=4, ensure_ascii=False) + "\n", encoding="utf-8")
+    except OSError as error:
+        log.error("Kunde inte spara config.json: %s", error)
+        return False
+    return True

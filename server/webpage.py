@@ -20,6 +20,7 @@ from html import escape
 from string import Template
 
 from .qrkod import QrKod
+from .terminal import full_name
 from .region import app_link
 
 PC_FOLDER = r"%USERPROFILE%\AppData\LocalLow\Innersloth\Among Us"
@@ -37,7 +38,7 @@ PAGE = Template(
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark">
-<title>$name</title>
+<title>$heading</title>
 <style>
   :root {
     --space: #141c33;
@@ -45,8 +46,6 @@ PAGE = Template(
     --hull-edge: #34436f;
     --rivet: #9aa7cf;
     --text: #f2f4ff;
-    --alarm: #e2313c;
-    --alarm-dark: #a3121d;
     --visor: #8fd8ee;
     --task: #f5d547;
     --round: ui-rounded, "SF Pro Rounded", "Arial Rounded MT Bold", "Nunito", system-ui, sans-serif;
@@ -61,7 +60,8 @@ PAGE = Template(
   :focus-visible { outline: 3px solid var(--visor); outline-offset: 2px; }
 
   header { margin-bottom: 22px; }
-  h1 { font: 800 2.1rem/1.05 var(--round); margin: 0 0 8px; letter-spacing: -.01em; }
+  h1 { font: 800 clamp(1.6rem, 7vw, 2.1rem)/1.1 var(--round); margin: 0 0 8px; letter-spacing: -.01em; }
+  h1 .server-name { color: #c4adff; }
   .status { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--rivet); }
   .status::before { content: ""; width: 10px; height: 10px; border-radius: 50%;
                     background: #5fd77a; box-shadow: 0 0 0 4px rgba(95, 215, 122, .18); }
@@ -86,17 +86,11 @@ PAGE = Template(
                  background: transparent; color: var(--rivet); font: 600 .95rem var(--body); }
   .tabs button[aria-selected="true"] { background: var(--hull-edge); color: var(--text); }
 
-  /* Den stora röda knappen, som nödmötesknappen i spelet */
-  .emergency { display: block; text-align: center; text-decoration: none; color: #fff;
-               font: 800 1.2rem/1.2 var(--round); padding: 18px 20px 20px; margin: 4px 0 14px;
-               border-radius: 999px; background: radial-gradient(ellipse at 50% 25%, #ff6b6b 0, var(--alarm) 55%);
-               box-shadow: inset 0 -5px 0 var(--alarm-dark), 0 0 0 6px #c9ced9, 0 0 0 9px #6b7283; }
-  .emergency:active { transform: translateY(2px); box-shadow: inset 0 -2px 0 var(--alarm-dark), 0 0 0 6px #c9ced9, 0 0 0 9px #6b7283; }
-
   .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer;
          border: 2px solid var(--hull-edge); background: var(--space); color: var(--text); text-decoration: none;
          border-radius: 12px; padding: 10px 14px; font: 600 1rem var(--body); }
   .btn.wide { width: 100%; }
+  .btn.add { margin: 2px 0 14px; padding: 12px 14px; }
   .btn.done { border-color: #5fd77a; }
   ol.steps { margin: 0 0 12px; padding-left: 1.4em; }
   ol.steps li { margin-bottom: 10px; padding-left: 4px; }
@@ -140,7 +134,7 @@ PAGE = Template(
 <body>
 <main>
   <header>
-    <h1>$name</h1>
+    <h1>$heading_html</h1>
     <p class="status">Servern är igång$status_extra</p>
   </header>
 $content
@@ -170,9 +164,9 @@ ADD_SECTION = Template(
 
     <div class="dev" data-dev="ios">
       <p class="js-only-title"><b>iPhone och iPad</b></p>
-      <a class="emergency" href="$app_link">Lägg till i Among Us</a>
+      <a class="btn wide add" href="$app_link">Lägg till i Among Us</a>
       <ol class="steps">
-        <li>Tryck på den röda knappen. Om telefonen frågar, välj <b>Öppna</b>.</li>
+        <li>Tryck på <b>Lägg till i Among Us</b>. Om telefonen frågar, välj <b>Öppna</b>.</li>
         <li>Among Us öppnas och servern <b>$name</b> läggs till.</li>
       </ol>
       <p class="muted">Händer inget? Kolla att Among Us är installerat och tryck igen.</p>
@@ -180,9 +174,9 @@ ADD_SECTION = Template(
 
     <div class="dev" data-dev="android">
       <p class="js-only-title"><b>Android</b></p>
-      <a class="emergency" href="$app_link">Lägg till i Among Us</a>
+      <a class="btn wide add" href="$app_link">Lägg till i Among Us</a>
       <ol class="steps">
-        <li>Tryck på den röda knappen. Om telefonen frågar vilken app, välj <b>Among Us</b>.</li>
+        <li>Tryck på <b>Lägg till i Among Us</b>. Om telefonen frågar vilken app, välj <b>Among Us</b>.</li>
         <li>Among Us öppnas och servern <b>$name</b> läggs till.</li>
       </ol>
       <p class="muted">Händer inget? Kolla att Among Us är installerat och tryck igen.</p>
@@ -202,7 +196,7 @@ ADD_SECTION = Template(
     <div class="dev" data-dev="mac">
       <p class="js-only-title"><b>Mac</b></p>
       <p>Among Us på Mac med Apple-chip (M1 eller nyare) fungerar som på iPhone:</p>
-      <a class="emergency" href="$app_link">Lägg till i Among Us</a>
+      <a class="btn wide add" href="$app_link">Lägg till i Among Us</a>
       <p class="muted">På Mac med Intel-processor finns inte Among Us, men den kan köra servern.</p>
     </div>
 
@@ -474,8 +468,13 @@ def render(
         if "ngrok" in url:
             footer += "<p>Visade ngrok en varningssida innan du kom hit? Det är bara första gången, och spelet påverkas inte.</p>"
 
+    heading = full_name(name, colored=False)
+    heading_html = "Emergency Meeting"
+    if heading != heading_html:
+        heading_html += f' - <span class="server-name">{escape(name)}</span>'
     return PAGE.substitute(
-        name=escape(name),
+        heading=escape(heading),
+        heading_html=heading_html,
         status_extra=", även för kompisar hemifrån" if playable_from_home else "",
         content="".join(sections),
         footer=footer,

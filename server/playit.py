@@ -169,11 +169,14 @@ class Playit:
         port: int,
         on_ready: Callable[[str, str, int], None],
         show: Callable[[str, List[str]], None],
+        on_waiting: Optional[Callable[[], None]] = None,
     ):
         self.binary = binary
         self.port = port
         self.on_ready = on_ready
         self.show = show  # skriver en ruta i terminalen
+        # Anropas när playit väntar på att värden gör något på playit.gg
+        self.on_waiting = on_waiting or (lambda: None)
         self.process: Optional[subprocess.Popen] = None
         self.address = ""
         self.endpoint: Optional[Tuple[str, int]] = None
@@ -239,6 +242,7 @@ class Playit:
                 return None
             if state != last_state or time.monotonic() - last_box > 300:
                 last_state, last_box = str(state), time.monotonic()
+                self.on_waiting()
                 self.show(
                     "KOPPLA SERVERN TILL PLAYIT.GG (bara första gången)",
                     [
@@ -485,6 +489,7 @@ class Playit:
         self._ask_for_tunnel(agent_id, [])
 
     def _ask_for_tunnel(self, agent_id: Optional[str], pending: List[dict]) -> None:
+        self.on_waiting()
         if pending:
             self._show_once("pending", "VÄNTAR PÅ PLAYIT.GG", [
                 "Tunneln finns men har ingen adress än. Det brukar ta någon minut.",
@@ -521,7 +526,6 @@ class Playit:
         first = not self.address
         self.address, self.endpoint = address, (ip, port)
         if changed:
-            self.on_ready(address, ip, port)
             if first:
                 self.show("PLAYIT ÄR KLART!", [
                     "Kompisar kan nu spela med er från sina egna hem,",
@@ -532,6 +536,7 @@ class Playit:
                 ])
             else:
                 log.info("playit-adressen är nu %s (%s:%d)", address, ip, port)
+            self.on_ready(address, ip, port)
         return True
 
     # --- Meddelanden från playit.gg ----------------------------------------

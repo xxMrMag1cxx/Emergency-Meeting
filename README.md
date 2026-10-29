@@ -28,7 +28,8 @@ med egna plugins.
       kompisar bara behöver lägga till servern en gång
 - [x] **Steg 10:** En anslutningssida som visar rätt steg för varje enhet,
       spelkoderna, en QR-kod och ett färdigt meddelande till kompisar
-      (behöver testas med riktiga spelet)
+- [x] **Steg 11:** Egna namn på servern, kommandon i Terminal-fönstret
+      (`/help`) och färger i loggen (behöver testas på Macen)
 
 ## Kom igång på Macen
 
@@ -69,8 +70,12 @@ Skriptet väljer själv en version som fungerar på er macOS.
 Dubbelklicka på **`start.command`**. Om macOS frågar om Python får ta emot
 inkommande anslutningar, välj **Tillåt**.
 
-Första gången frågar servern efter två saker. Båda behövs bara en gång:
+Första gången frågar servern efter tre saker. Alla behövs bara en gång:
 
+- **NAME YOUR SERVER**: skriv ett namn på servern och tryck Enter (eller
+  bara Enter för att behålla *Emergency Meeting*). Namnet syns som region i
+  Among Us och på startsidan. Det går att byta senare med
+  `/changeservername`, se [Kommandon](#kommandon).
 - **FAST HTTPS-ADRESS MED NGROK**: klistra in en nyckel från ngrok, se
   [Fast HTTPS-adress med ngrok](#fast-https-adress-med-ngrok).
 - **KOPPLA SERVERN TILL PLAYIT.GG**: öppna en länk och godkänn servern, se
@@ -86,7 +91,37 @@ https://glad-pingvin-1234.ngrok-free.dev
 Med ngrok är adressen samma varje gång. Utan ngrok blir det en
 Cloudflare-adress (`...trycloudflare.com`) som byts vid varje start.
 
-Stäng av servern med **Ctrl+C**.
+När allt är klart kommer rutan **SERVER IS ONLINE!**. Då kan man gå med.
+
+Stäng av servern med **Ctrl+C** (eller skriv `/stop`).
+
+### Uppdatera till en ny version
+
+Ladda ner koden som ZIP igen och flytta över de här från den gamla mappen,
+så slipper ni göra om sådant som bara behövs första gången:
+
+- `config.json` (inställningarna och serverns namn)
+- `playit-nyckel.txt`, `ngrok-nyckel.txt` och `ngrok-adress.txt`
+- `cloudflared` och mappen `plugins`
+
+## Kommandon
+
+Medan servern kör kan man skriva kommandon i Terminal-fönstret och trycka
+Enter:
+
+| Kommando | Vad det gör |
+|----------|-------------|
+| `/help` | Visar alla kommandon |
+| `/changeservername <namn>` | Byter serverns namn, t.ex. `/changeservername Blobis server` |
+| `/games` | Visar spelen på servern med spelkod, antal spelare och karta |
+| `/address` | Visar startsidans adress och QR-koden igen |
+| `/say <meddelande>` | Skickar ett chattmeddelande till alla i alla spel |
+| `/stop` | Stänger av servern (samma som Ctrl+C) |
+
+När servern byter namn ändras regionen i `regionInfo.json`, i knappen på
+startsidan och i rubriken direkt. Den som redan har lagt till servern ser
+det gamla namnet i Among Us tills den lägger till servern igen från
+startsidan. Det går att spela ändå, adressen är densamma.
 
 ### 5. Testa utan spelet (valfritt)
 
@@ -236,6 +271,12 @@ Under rundan skriver loggen inte ut vem som dödade någon eller vilka som är
 impostors, så att den som tittar på serverfönstret inte får veta det. Det
 kommer först i sammanfattningen när rundan är slut.
 
+Loggen har färger: rutornas rubriker är röda och varje sorts rad har sin
+färg (servern och spelen orange, playit.gg gult, ngrok blått, HTTP grönt,
+bots turkost och plugins lila). Varningar är gula och fel röda. Färgerna
+följer om Macen har mörkt eller ljust läge. Vill man ha andra eller inga
+färger finns `color_theme` och `colors` i `config.json`.
+
 ## Dödande
 
 I Among Us är det servern, inte värden, som bestämmer om en impostor får
@@ -279,11 +320,12 @@ Hur man skriver egna plugins står i [plugins/README.md](plugins/README.md).
 
 ## Serverns inställningar
 
-Serverns egna inställningar finns i `config.json`:
+Serverns egna inställningar finns i `config.json`. Filen skapas första
+gången servern startar. Ändra i den med TextEdit när servern är avstängd.
 
 | Inställning        | Vad den gör |
 |--------------------|-------------|
-| `server_name`      | Serverns namn |
+| `server_name`      | Serverns namn (frågas första gången, byt med `/changeservername`) |
 | `listen_ip`        | `0.0.0.0` = lyssna på alla nätverk. Behöver sällan ändras |
 | `port`             | Port för både HTTP och spel. Among Us använder `22023` |
 | `public_ip`        | `auto` = Macens adress i hemnätverket. Kan sättas till en egen adress |
@@ -296,6 +338,8 @@ Serverns egna inställningar finns i `config.json`:
 | `plugins`          | `true` = ladda plugins från mappen `plugins/` |
 | `page_shows_games` | `true` = visa spelen och deras koder på startsidan |
 | `terminal_qr`      | `true` = visa HTTPS-adressen som QR-kod i Terminal-fönstret |
+| `colors`           | `true` = färger i Terminal-fönstret |
+| `color_theme`      | `auto` = följ Macens mörka/ljusa läge, `dark` = för svart bakgrund, `light` = för vit bakgrund |
 | `debug`            | `true` = visa varje paket i loggen, bra vid felsökning |
 
 ## Så här är koden uppbyggd
@@ -303,7 +347,8 @@ Serverns egna inställningar finns i `config.json`:
 ```
 server/
   __main__.py    startar allt
-  config.py      läser config.json
+  config.py      läser och sparar config.json
+  terminal.py    färger, rutor, servernamnet och kommandona (/help)
   matchmaker.py  HTTP-delen: spelet frågar var servern finns
   ngrok.py       startar ngrok: HTTPS-adress som är samma varje gång
   tunnel.py      startar cloudflared (reserv): HTTPS-adress som byts varje gång
