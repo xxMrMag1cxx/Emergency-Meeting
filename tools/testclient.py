@@ -29,7 +29,7 @@ from server.messages import MessageReader, MessageWriter  # noqa: E402
 
 HOST = sys.argv[1] if len(sys.argv) > 1 else "127.0.0.1"
 PORT = int(sys.argv[2]) if len(sys.argv) > 2 else 22023
-VERSION = protocol.encode_game_version(2026, 3, 18)  # like Among Us 17.4
+VERSION = protocol.BUILT_FOR_VERSIONS[0]  # like Among Us 19.0 on PC
 
 
 def http(method, path, body=None):

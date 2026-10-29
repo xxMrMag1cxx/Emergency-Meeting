@@ -39,8 +39,8 @@ import urllib.request
 from dataclasses import dataclass, field
 from typing import Callable, List, Optional, Set
 
-from . import __version__, i18n
-from .config import CONFIG_FILE, PROJECT_DIR, Config, save_config
+from . import __copyright__, __version__, i18n
+from .config import CONFIG_FILE, PROJECT_DIR, Config, forget_pending, save_config
 from .game import Game
 from .hazel import HazelServer
 from .i18n import tr
@@ -52,6 +52,7 @@ from .plugins import PluginManager
 from .protocol import DisconnectReason
 from .qrcode import QrCode
 from .region import region_info_json
+from .settings import add_settings_commands
 from .terminal import (
     ERROR, GREEN, LIGHT_BLUE, PLAYING, PURPLE, Console, clean_name, output_lock, paint, print_banner, print_box,
     print_step, print_step_detail, print_step_result, restore_terminal, say, success, wait_for_enter,
@@ -67,6 +68,8 @@ PLAYIT_TIMEOUT = 75  # seconds for playit.gg to give a working address
 NGROK_TIMEOUT = 100  # seconds for ngrok (40 to start, 30 to check, and some margin)
 CLOUDFLARE_TIMEOUT = 110  # cloudflared checks for up to 90 seconds itself
 PROBE_SECONDS = 15  # how long to try the test packet through playit.gg
+PROBE_AFTER_RESTART = 25  # the same after playitd has been restarted once
+LOOPBACK = ("127.0.0.1", "::1")  # where playitd sends the packets of friends who play from home
 
 
 @dataclass
@@ -129,7 +132,7 @@ class Server:
             tr("The Mac's address on the network: {ip}", ip=self.info.public_ip),
             tr("Settings: {file}", file=CONFIG_FILE.name),
             tr("Stop the server with Ctrl+C"),
-        ])
+        ], copyright_line=__copyright__)
         print()
         say(paint(tr("Starting the server, one part at a time:"), LIGHT_BLUE, bold=True))
         if self.after_failed_start:
@@ -247,8 +250,12 @@ class Server:
 
     # --- Step 4: playit.gg ---------------------------------------------------------
 
-    async def step_playit(self) -> bool:
+    async def step_playit(self, keep: bool = False) -> bool:
         config = self.config
+        if keep and self.playit is not None:
+            print_step_result("ok", tr("{address} (works, kept running so that nobody is disconnected)",
+                                       address=self.playit.address))
+            return True
         self.playit_state = "off"
         if not config.playit:
             print_step_result("off", tr("Turned off in config.json, only your wifi can play."))
@@ -295,6 +302,14 @@ class Server:
         self.info.set_playit(playit.address, ip, port)
         self.playit_state = "ready"
         arrived = await self.loop.run_in_executor(None, self.hazel.probe, (ip, port), PROBE_SECONDS, 1.5)
+        if not arrived and not self._stopping.is_set():
+            # Usually playitd just hasn't finished signing in to playit.gg (for
+            # example right after a restart). Starting it once more often helps.
+            print_step_detail(tr("The test packet didn't come through. Restarting playit.gg's program once..."))
+            if await self.loop.run_in_executor(None, playit.restart_agent):
+                arrived = await self.loop.run_in_executor(None, self.hazel.probe, (ip, port), PROBE_AFTER_RESTART, 1.5)
+        if self._stopping.is_set():
+            return False
         if arrived:
             print_step_result("ok", tr("{address} (a test packet came through)", address=playit.address))
         else:
@@ -570,12 +585,12 @@ class Server:
 
     # --- playit.gg and HTTPS again: /reload ------------------------------------------
 
-    async def start_network(self) -> None:
+    async def start_network(self, keep_playit: bool = False) -> None:
         """Steps 4 and 5 (playit.gg and HTTPS), for /reload."""
         self._starting_network = True
         try:
             print_step(1, 2, "playit.gg")
-            await self.step_playit()
+            await self.step_playit(keep=keep_playit)
             if self._stopping.is_set():
                 return
             print_step(2, 2, tr("HTTPS address"))
@@ -583,29 +598,44 @@ class Server:
         finally:
             self._starting_network = False
 
-    def stop_network(self) -> None:
-        for part in (self.ngrok, self.tunnel, self.playit):
+    def stop_network(self, keep_playit: bool = False) -> None:
+        """Stops playit.gg and the HTTPS address. keep_playit: only the HTTPS address."""
+        parts = [self.ngrok, self.tunnel] + ([] if keep_playit else [self.playit])
+        for part in parts:
             if part is not None:
                 part.stop()
-        self.ngrok = self.tunnel = self.playit = None
+        self.ngrok = self.tunnel = None
         self.info.tunnel_url = ""
         self.info.fixed_url = ""
-        self.info.playit_endpoint = None
-        self.info.playit_address = ""
-        self.playit_state = "off"
         self.https_kind = ""
+        if not keep_playit:
+            self.playit = None
+            self.info.playit_endpoint = None
+            self.info.playit_address = ""
+            self.playit_state = "off"
 
-    async def reload(self) -> None:
+    def playit_works(self) -> bool:
+        """True if playitd runs and a test packet comes through its address. Blocks a few seconds at most."""
+        playit = self.playit
+        if playit is None or not playit.is_running() or playit.endpoint is None or self.playit_state != "ready":
+            return False
+        return self.hazel.probe(playit.endpoint, 5, 0.5)
+
+    async def reload(self, keep_playit: bool = False) -> None:
+        """
+        /reload: starts the HTTPS address again, and playit.gg too unless
+        keep_playit (then friends who play from home stay connected).
+        """
         if self._reloading:
             say(tr("A reload is already going on."))
             return
         self._reloading = True
         try:
             say(paint(tr("Reloading playit.gg and the HTTPS address, one at a time..."), LIGHT_BLUE, bold=True))
-            self.stop_network()
+            self.stop_network(keep_playit)
             await asyncio.sleep(2)  # ngrok's free account allows one connection: let the old one close
             self.problems = []
-            await self.start_network()
+            await self.start_network(keep_playit)
             if self._stopping.is_set():
                 return
             if self.problems:
@@ -656,7 +686,7 @@ class Server:
     def start_console(self) -> None:
         if not self.interactive or self.console is not None:
             return
-        self.console = Console()
+        self.console = Console(input_line=self.config.input_line)
         add_commands(self)
         if self.ngrok is not None:
             self.ngrok.ask = self.console.ask
@@ -714,6 +744,7 @@ def add_commands(server: Server) -> None:
             return
         old = config.server_name
         config.server_name = name
+        forget_pending("server_name")
         save_config(config)
         write_region_file(info)
         success(tr("Name updated!"))
@@ -732,6 +763,7 @@ def add_commands(server: Server) -> None:
             return
         code = i18n.set_language(argument)
         config.language = i18n.language_name(code)
+        forget_pending("language")
         save_config(config)
         success(tr("Language updated!"))
 
@@ -781,31 +813,45 @@ def add_commands(server: Server) -> None:
                 say(tr("There are no games to send to right now."))
         loop.call_soon_threadsafe(send)
 
-    def online_rooms() -> List[str]:
-        return [lobby.code for lobby in info.lobbies.all() if lobby.players]
+    def plays_from_home(lobby) -> bool:
+        """Someone in the room plays through playit.gg (playitd sends their packets from this Mac)."""
+        return any(getattr(player.connection, "address", ("",))[0] in LOOPBACK for player in lobby.players.values())
 
-    def warn_first(rebooting: bool, action: Callable[[], None]) -> None:
-        """Asks "Do you wish to proceed?" first, but only if a room is online."""
-        codes = online_rooms()
+    def online_rooms(from_home: bool = False) -> List[str]:
+        return [lobby.code for lobby in info.lobbies.all()
+                if lobby.players and (not from_home or plays_from_home(lobby))]
+
+    def warn_first(rebooting: bool, codes: List[str], action: Callable[[], None]) -> None:
+        """Asks "Do you wish to proceed?" first, but only if a room would be disconnected."""
         if not codes:
             action()
             return
+        console.confirm(action)
         rooms = ", ".join(paint(code, LIGHT_BLUE, bold=True) for code in codes)
-        what = tr("Rebooting") if rebooting else tr("Reloading")
+        if rebooting:
+            consequence = tr("Rebooting will disconnect all online rooms.")
+        else:
+            consequence = tr("Reloading restarts playit.gg, which disconnects everyone who plays from home.")
         print_box(tr("WARNING"), [
             tr("One or more online rooms are playing right now: {rooms}", rooms=rooms),
-            tr("{what} will disconnect all online rooms.", what=what),
+            consequence,
             "",
             tr("Do you wish to proceed? Type {yes} or {no}.",
                yes=paint("yes", LIGHT_BLUE, bold=True), no=paint("no", LIGHT_BLUE, bold=True)),
         ])
-        console.confirm(action)
 
     def reload(_argument: str) -> None:
-        warn_first(False, lambda: asyncio.run_coroutine_threadsafe(server.reload(), loop))
+        async def check_first() -> None:
+            # If playit.gg works it keeps running, and then nobody is disconnected.
+            # (If playitd isn't running, nobody plays through it either.)
+            keep = await loop.run_in_executor(None, server.playit_works)
+            running = server.playit is not None and server.playit.is_running()
+            codes = online_rooms(from_home=True) if running and not keep else []
+            warn_first(False, codes, lambda: asyncio.run_coroutine_threadsafe(server.reload(keep_playit=keep), loop))
+        asyncio.run_coroutine_threadsafe(check_first(), loop)
 
     def reboot(_argument: str) -> None:
-        warn_first(True, lambda: loop.call_soon_threadsafe(server.reboot))
+        warn_first(True, online_rooms(), lambda: loop.call_soon_threadsafe(server.reboot))
 
     def stop(_argument: str) -> None:
         say(tr("Stopping the server..."))
@@ -816,6 +862,7 @@ def add_commands(server: Server) -> None:
     console.add("games", "/games", "List the games on the server and their codes", games)
     console.add("address", "/address", "Show the join page address and QR code again", address)
     console.add("say", "/say <message>", "Send a chat message to everyone in every game", say_to_all)
-    console.add("reload", "/reload", "Start playit.gg and the HTTPS address again", reload)
+    add_settings_commands(console, config)
+    console.add("reload", "/reload", "Start the HTTPS address again, and playit.gg if it doesn't work", reload)
     console.add("reboot", "/reboot", "Restart the whole server (everyone is disconnected)", reboot)
     console.add("stop", "/stop", "Stop the server (same as Ctrl+C)", stop)

@@ -10,7 +10,7 @@ in Python, using only what comes with Python, and it has its own plugin system.
 It was made with the help of AI, see [Made with AI](#made-with-ai).
 
 <p align="center">
-  <img src="docs/terminal.png" alt="The server's Terminal window starting one part at a time, then the box SERVER IS ONLINE! and a game with two bots" width="560">
+  <img src="docs/terminal.png" alt="The server's Terminal window starting one part at a time, then the box SERVER IS ONLINE!, a game with two bots and the line at the bottom where you type commands" width="560">
   <img src="docs/join-page.png" alt="The join page on an iPhone, with the steps to add the server and a game code" width="230">
 </p>
 
@@ -38,6 +38,8 @@ It was made with the help of AI, see [Made with AI](#made-with-ai).
 - **Among Us** on iPhone/iPad, Android, PC (Steam, Epic, Microsoft Store) or a
   Mac with Apple silicon. Consoles (Switch, Xbox, PlayStation) can't join
   custom servers
+- The server is made for **Among Us 19.0** (September 2026). Other versions
+  can join too, see [Game versions](#game-versions)
 
 ## Quick start
 
@@ -279,6 +281,10 @@ through the internet instead of directly to the Mac.
 - **"playit.gg isn't here"** in the log: the file `playit/playitd-macos` is
   missing. Download the ZIP again, or double-click `build-playit.command`
   (see [playit/README.md](playit/README.md)).
+- **"The test packet didn't come through. Restarting playit.gg's program
+  once..."**: right after a restart playit.gg sometimes needs a moment before
+  it lets the new playitd in. The server waits a few seconds and tries again
+  by itself.
 - If you only want to play on your wifi: set `"playit": false` in `config.json`.
 
 ## Language
@@ -299,7 +305,8 @@ yet. Plugins can bring their own translations, see
 ## Commands
 
 While the server is running you can type commands in the Terminal window and
-press Enter:
+press Enter. What you type stays on the last line of the window and new
+messages show up above it. The up and down arrows bring back earlier commands.
 
 | Command | What it does |
 |---------|--------------|
@@ -309,12 +316,20 @@ press Enter:
 | `/address` | Shows the join page's address and the QR code again |
 | `/say <message>` | Sends a chat message to everyone in all games |
 | `/language <English\|Swedish>` | Changes the language in the Terminal window |
-| `/reload` | Starts playit.gg and the HTTPS address again, one at a time. Friends playing from home are disconnected |
+| `/settings` | Prints out all server settings |
+| `/setting <name> = <value>` | Changes a setting's value, for example `/setting allow_older_game_versions = false`. Without `= <value>` it shows the value |
+| `/reload` | Starts the HTTPS address again, and playit.gg too if it doesn't work. If playit.gg works it keeps running, so nobody is disconnected |
 | `/reboot` | Restarts the whole server in the same window. Everyone is disconnected |
 | `/stop` | Stops the server (the same as Ctrl+C) |
 
-If a room is online, `/reload` and `/reboot` first show a warning with the
-rooms' codes and ask you to type `yes` or `no`.
+If a room is online, `/reboot` first shows a warning with the rooms' codes and
+asks you to type `yes` or `no`. `/reload` does the same if it has to restart
+playit.gg while someone plays from home.
+
+`/setting` saves the new value in `config.json` right away, but the server
+keeps using the old one until you restart it with `/reboot`, so nothing
+changes in the middle of a game. `/settings` marks those values with
+"(after a reboot)".
 
 When the server changes its name, the region in `regionInfo.json`, the button
 on the join page and the heading change right away. Those who have already
@@ -372,7 +387,8 @@ How to write your own plugins is in [plugins/README.md](plugins/README.md).
 ## The server's settings
 
 The server's own settings are in `config.json`. The file is created the first
-time the server starts. Change it with TextEdit when the server is off.
+time the server starts. Change it with `/setting <name> = <value>` while the
+server runs, or with TextEdit when the server is off.
 
 | Setting            | What it does |
 |--------------------|--------------|
@@ -387,12 +403,27 @@ time the server starts. Change it with TextEdit when the server is off.
 | `cloudflared_path` | `auto` = look for cloudflared by itself (the project folder first) |
 | `playit`           | `true` = make the game reachable from home with playit.gg |
 | `playit_path`      | `auto` = look for playitd by itself (the `playit/` folder first) |
+| `allow_future_game_versions` | `true` = newer versions of Among Us than the server is made for can join. `false` = they get a message in the game instead |
+| `allow_older_game_versions`  | `true` = older versions of Among Us can join. `false` = they get a message in the game instead |
 | `plugins`          | `true` = load plugins from the `plugins/` folder |
 | `page_shows_games` | `true` = show the games and their codes on the join page |
 | `terminal_qr`      | `true` = show the HTTPS address as a QR code in the Terminal window |
 | `colors`           | `true` = colors in the Terminal window |
 | `color_theme`      | `auto` = follow the Mac's dark/light mode, `dark` = for a black background, `light` = for a white background |
+| `input_line`       | `true` = what you type stays on the last line of the Terminal window. `false` = type among the messages |
 | `debug`            | `true` = show every packet in the log, good for troubleshooting |
+
+### Game versions
+
+Emergency Meeting is made for **Among Us 19.0** (September 29, 2026). Inside
+the game that version is called 2026.7.20 on PC and 2026.7.21 on phones and
+tablets, and that's what the log shows when someone connects.
+
+By default every version can join. If someone has a newer or older version,
+the log says so, because some things might not work. With
+`"allow_future_game_versions": false` newer versions can't join, and with
+`"allow_older_game_versions": false` older versions can't. They get a message
+in the game that tells them why.
 
 ## Known limitations
 
@@ -405,13 +436,14 @@ This is an alpha, so some things are missing or rough:
   a game code to join a game, so only share the address with friends.
 - The Mac has to be awake and running the server while you play.
 - Everyone should have the same (or almost the same) version of Among Us as
-  the host. The server warns in the log if the versions differ.
+  the host. The server warns in the log if the versions differ, see
+  [Game versions](#game-versions).
 
 ## Troubleshooting
 
 - **SOMETHING ISN'T WORKING**: the box says which part didn't start and what
-  to do. After fixing it, type `/reload` (playit.gg and the HTTPS address) or
-  `/reboot` (the whole server).
+  to do. After fixing it, type `/reload` (the HTTPS address, and playit.gg if
+  it doesn't work) or `/reboot` (the whole server).
 - **Black screen and nothing happens in the server window**: the game doesn't
   reach the server. Check that you use the HTTPS address from the *latest*
   start of the server. With ngrok the address is the same every time, but if
@@ -503,7 +535,8 @@ before the next one starts:
    out the playit.gg address. If HTTPS opened first, a friend could get the
    wrong address. Checked by fetching the page through HTTPS.
 
-`/reload` runs steps 4 and 5 again.
+`/reload` runs step 5 again, and step 4 too if playit.gg doesn't answer a test
+packet.
 
 ### Who decides what
 
@@ -519,9 +552,11 @@ is going on, before it sends "MurderPlayer" to everyone.
 server/
   __main__.py    the starting point: the guide the first time, then startup.py
   config.py      reads and saves config.json
+  settings.py    the commands /settings and /setting
   startup.py     starts everything one part at a time, /reload, /reboot and the commands
   wizard.py      the guide the first time the server starts
-  terminal.py    colors, boxes, the steps, the language menu, the server name and /help
+  terminal.py    colors, boxes, the steps, the language menu, the server name, /help
+                 and the line at the bottom where you type
   i18n.py        translations for the Terminal window
   locales/       the translations (sv.json = Swedish)
   matchmaker.py  the HTTP part: the game asks where the server is
@@ -570,6 +605,8 @@ The map data in `server/mapdata/` comes from other open projects, see
 [server/mapdata/README.md](server/mapdata/README.md).
 
 ## License
+
+Copyright (C) 2026 xxMrMag1cxx
 
 Emergency Meeting is free software under the
 [GNU General Public License v3.0](LICENSE). You may use, change and share it,

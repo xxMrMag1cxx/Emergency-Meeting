@@ -15,7 +15,7 @@ import logging
 import socket
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict
+from typing import Dict, List
 
 log = logging.getLogger("config")
 
@@ -67,6 +67,13 @@ class Config:
     # Where the program playitd is. "auto" = look by itself (the playit/ folder first).
     playit_path: str = "auto"
 
+    # The server is made for one version of Among Us (see the README).
+    # Let newer versions of the game join anyway (they usually work).
+    allow_future_game_versions: bool = True
+
+    # Let older versions of the game join.
+    allow_older_game_versions: bool = True
+
     # Load plugins from the plugins/ folder.
     plugins: bool = True
 
@@ -82,6 +89,10 @@ class Config:
     # Which colors: "auto" (follows the Mac's dark/light mode), "dark" (for a
     # black background) or "light" (for a white background).
     color_theme: str = "auto"
+
+    # Keep what you type on the last line of the Terminal window, with new
+    # messages showing up above it. false = type among the messages like before.
+    input_line: bool = True
 
     # Set to true to see every single packet in the log (good for debugging).
     debug: bool = False
@@ -135,10 +146,55 @@ def rename_old_files() -> None:
 # Settings in the file that the server doesn't know (saved back untouched).
 _unknown: Dict[str, object] = {}
 
+# Settings changed with /setting while the server runs. They are saved in the
+# file right away, but the server keeps using the old values until it restarts.
+_pending: Dict[str, object] = {}
+
+
+def setting_names() -> List[str]:
+    return [field.name for field in dataclasses.fields(Config)]
+
+
+def saved_value(config: Config, name: str) -> object:
+    """The value in config.json (the one the server uses after a restart)."""
+    return _pending.get(name, getattr(config, name))
+
+
+def is_pending(name: str) -> bool:
+    return name in _pending
+
+
+def change_setting(config: Config, name: str, value: object) -> bool:
+    """
+    Saves a new value in config.json without changing the running server.
+    Returns False if the file couldn't be saved.
+    """
+    old = _pending.get(name, _MISSING)
+    if value == getattr(config, name):
+        _pending.pop(name, None)
+    else:
+        _pending[name] = value
+    if save_config(config):
+        return True
+    if old is _MISSING:
+        _pending.pop(name, None)
+    else:
+        _pending[name] = old
+    return False
+
+
+def forget_pending(name: str) -> None:
+    """When a command has changed the setting in the running server too (for example /language)."""
+    _pending.pop(name, None)
+
+
+_MISSING = object()
+
 
 def load_config() -> Config:
     config = Config()
     _unknown.clear()
+    _pending.clear()
 
     if not CONFIG_FILE.exists():
         return config
@@ -171,6 +227,7 @@ def save_config(config: Config) -> bool:
         log.warning("config.json has an error, so the change was not saved in the file.")
         return False
     data = dataclasses.asdict(config)
+    data.update(_pending)
     data.update(_unknown)
     try:
         CONFIG_FILE.write_text(json.dumps(data, indent=4, ensure_ascii=False) + "\n", encoding="utf-8")

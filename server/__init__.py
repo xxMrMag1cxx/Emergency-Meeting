@@ -1,3 +1,4 @@
 """Emergency Meeting: our own Among Us server, built from scratch."""
 
-__version__ = "0.13.1-alpha"
+__version__ = "0.13.2-alpha"
+__copyright__ = "Copyright (C) 2026 xxMrMag1cxx"

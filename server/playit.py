@@ -62,7 +62,14 @@ HARMLESS = re.compile(
     r"No route to host|Network is unreachable|failed to ping tunnel server|"
     r"SessionNotSetup|failed to send initial ping"
 )
+# While playitd signs in to playit.gg it may write these a few times and then
+# try again by itself (especially right after a restart). Only with "debug": true.
+SIGNING_IN = re.compile(r"waiting for register response|unexpected response from register request")
 PID_FILE = Path(tempfile.gettempdir()) / "em-playitd.pid"
+# When playitd was stopped last time. playit.gg needs a moment to let go of the
+# old connection, otherwise the new playitd can have trouble signing in.
+STOPPED_FILE = Path(tempfile.gettempdir()) / "em-playitd-stopped"
+PAUSE_AFTER_STOP = 5.0  # seconds
 
 CHECK_EVERY = 60  # seconds between the checks that the tunnel is still there
 RESOLVE_EVERY = 300  # seconds between the lookups of the address's IP
@@ -111,6 +118,49 @@ def resolve_ipv4(host: str) -> Optional[str]:
     except OSError:
         return None
     return infos[0][4][0] if infos else None
+
+
+def _end_process(pid: int) -> None:
+    """Asks a process to close, waits until it has, and forces it after 5 seconds."""
+    for signal_number, seconds in ((15, 5.0), (9, 2.0)):
+        try:
+            os.kill(pid, signal_number)
+        except OSError:
+            return  # it's gone
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            time.sleep(0.2)
+            try:
+                os.kill(pid, 0)
+            except OSError:
+                return
+
+
+def _remember_stop() -> None:
+    try:
+        STOPPED_FILE.write_text(str(time.time()))
+    except OSError:
+        pass
+
+
+def _pause_after_last_stop() -> None:
+    """If playitd was stopped a moment ago, wait a little, so that playit.gg lets go of it first."""
+    try:
+        stopped = float(STOPPED_FILE.read_text().strip())
+    except (OSError, ValueError):
+        return
+    left = PAUSE_AFTER_STOP - (time.time() - stopped)
+    if 0 < left <= PAUSE_AFTER_STOP:
+        log.debug("Waiting %.1f seconds before playitd starts again", left)
+        time.sleep(left)
+
+
+def _remove(path: str) -> None:
+    if path:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
 
 
 class PlayitApi:
@@ -216,6 +266,10 @@ class Playit:
         self._shown: Dict[str, float] = {}
         self._agent_started = 0.0
         self._create_errors: List[str] = []
+        self._secret: Optional[str] = None
+        self._socket_path = ""
+        self._starts = 0
+        self.signing_in_trouble = 0  # how many times playitd had to try signing in again
 
     @staticmethod
     def has_key() -> bool:
@@ -223,12 +277,10 @@ class Playit:
 
     def stop(self) -> None:
         self._stopping.set()
-        if self.process and self.process.poll() is None:
-            self.process.terminate()
-            try:
-                self.process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
+        self.stop_agent()
+
+    def is_running(self) -> bool:
+        return self.process is not None and self.process.poll() is None
 
     # --- Step 1: connect the server to a playit account ---------------------
 
@@ -325,11 +377,8 @@ class Playit:
             return
         if "playitd" in command and "--secret" in command:
             log.info("Closing an old playitd that was left (process %d).", pid)
-            try:
-                os.kill(pid, 15)
-            except OSError:
-                pass
-            time.sleep(1)
+            _end_process(pid)
+            _remember_stop()
 
     def _prepare_binary(self) -> None:
         """Make sure playitd is allowed to run.
@@ -353,10 +402,15 @@ class Playit:
 
     def start_agent(self, secret: str) -> None:
         """Starts playitd. Raises OSError if it can't be started."""
+        self._secret = secret
         self._stop_leftover()
+        _pause_after_last_stop()
         self._prepare_binary()
-        socket_path = os.path.join(tempfile.gettempdir(), f"em-playitd-{os.getpid()}.sock")
-        command = [self.binary, "--secret", secret, "--socket-path", socket_path]
+        # A new file every time: after /reboot the server has the same process number.
+        self._starts += 1
+        self._socket_path = os.path.join(tempfile.gettempdir(), f"em-playitd-{os.getpid()}-{self._starts}.sock")
+        _remove(self._socket_path)
+        command = [self.binary, "--secret", secret, "--socket-path", self._socket_path]
         env = dict(os.environ, NO_COLOR="1", PLAYIT_LOG=os.environ.get("PLAYIT_LOG", "info"))
         log.debug("Starting the playit.gg tunnel...")
         try:
@@ -377,6 +431,7 @@ class Playit:
                           "playit/playitd-macos in Finder, choose Open and then Open again.")
             raise
         self._agent_started = time.monotonic()
+        self.signing_in_trouble = 0
         try:
             PID_FILE.write_text(str(self.process.pid))
         except OSError:
@@ -384,13 +439,38 @@ class Playit:
         threading.Thread(target=self._read_output, args=(self.process,), name="playitd", daemon=True).start()
 
     def stop_agent(self) -> None:
+        """Stops playitd and waits until it really has closed."""
         process, self.process = self.process, None
-        if process and process.poll() is None:
+        if process is None:
+            return
+        if process.poll() is None:
             process.terminate()
             try:
                 process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 process.kill()
+                try:
+                    process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    pass
+            _remember_stop()
+        try:
+            if PID_FILE.read_text().strip() == str(process.pid):
+                PID_FILE.unlink()
+        except (OSError, ValueError):
+            pass
+        _remove(self._socket_path)
+
+    def restart_agent(self) -> bool:
+        """Stops playitd, waits a moment and starts it again. False if it couldn't start."""
+        if not self._secret or self._stopping.is_set():
+            return False
+        self.stop_agent()
+        try:
+            self.start_agent(self._secret)
+        except OSError:
+            return False
+        return True
 
     def _read_output(self, process: subprocess.Popen) -> None:
         assert process.stdout is not None
@@ -399,7 +479,10 @@ class Playit:
             line = ANSI.sub("", line).strip()
             if not line:
                 continue
-            if PROBLEM.search(line) and not HARMLESS.search(line) and shown < 10:
+            if SIGNING_IN.search(line):
+                self.signing_in_trouble += 1
+                log.debug("playitd: %s", line)
+            elif PROBLEM.search(line) and not HARMLESS.search(line) and shown < 10:
                 shown += 1
                 log.warning("playitd: %s", line)
             else:

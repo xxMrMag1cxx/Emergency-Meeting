@@ -167,7 +167,7 @@ def decode_game_version(value: int) -> str:
     """
     Among Us hides the version in a single number:
         year * 25000 + month * 1800 + day * 50 + revision
-    The game's "17.4" is for example 2026.3.18 inside.
+    The game's "19.0" is for example 2026.7.21 inside (on phones).
     """
     year, rest = divmod(value, 25000)
     month, rest = divmod(rest, 1800)
@@ -180,6 +180,31 @@ def decode_game_version(value: int) -> str:
 
 def encode_game_version(year: int, month: int, day: int, revision: int = 0) -> int:
     return year * 25000 + month * 1800 + day * 50 + revision
+
+
+# The version of Among Us that the server is made for: 19.0 (September 29,
+# 2026). The PC game and the phone game got slightly different numbers inside.
+# Other versions may join too, see "allow_future_game_versions" and
+# "allow_older_game_versions" in config.json.
+BUILT_FOR = "19.0"
+BUILT_FOR_VERSIONS = (
+    encode_game_version(2026, 7, 20),  # PC (Steam, Epic, Microsoft Store)
+    encode_game_version(2026, 7, 21),  # iPhone, iPad and Android
+)
+
+
+def compare_game_version(value: int) -> int:
+    """
+    -1 if the game is older than the version the server is made for, 0 if it's
+    the same and 1 if it's newer. The revision (the last part, which mods use
+    for "host authority") doesn't count.
+    """
+    plain = value - value % 50
+    if plain < min(BUILT_FOR_VERSIONS):
+        return -1
+    if plain > max(BUILT_FOR_VERSIONS):
+        return 1
+    return 0
 
 
 # --- Inside GameData: the game itself ------------------------------------

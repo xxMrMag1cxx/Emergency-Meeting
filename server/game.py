@@ -76,6 +76,35 @@ class Game:
             hs.game_version_text,
             tr(hs.platform_text),
         )
+        self._check_game_version(connection)
+
+    def _check_game_version(self, connection: Connection) -> None:
+        """
+        Says in the log if the game isn't the version the server is made for,
+        and disconnects it if config.json doesn't allow that version.
+        """
+        hs = connection.handshake
+        assert hs is not None
+        compared = protocol.compare_game_version(hs.game_version)
+        if compared == 0:
+            return
+        built_for = protocol.BUILT_FOR
+        if compared > 0 and self.config.allow_future_game_versions:
+            log.info("%s has a newer game version than the server is made for (Among Us %s). "
+                     "It's allowed, but something might not work.", hs.name, built_for)
+        elif compared < 0 and self.config.allow_older_game_versions:
+            log.info("%s has an older game version than the server is made for (Among Us %s). "
+                     "It's allowed, but something might not work.", hs.name, built_for)
+        elif compared > 0:
+            log.warning("%s can't join: a newer game version than the server is made for (Among Us %s), "
+                        "and allow_future_game_versions is false", hs.name, built_for)
+            connection.disconnect(Reason.CUSTOM, f"This server is made for Among Us {built_for} "
+                                                 "and doesn't allow newer versions of the game.")
+        else:
+            log.warning("%s can't join: an older game version than the server is made for (Among Us %s), "
+                        "and allow_older_game_versions is false", hs.name, built_for)
+            connection.disconnect(Reason.CUSTOM, f"This server is made for Among Us {built_for}. "
+                                                 "Update Among Us to play here.")
 
     def on_disconnect(self, connection: Connection, why: str) -> None:
         player = self._player(connection)

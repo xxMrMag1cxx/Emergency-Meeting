@@ -2,6 +2,30 @@
 
 All versions of Emergency Meeting. Versions before 0.12.1 had Swedish texts.
 
+## 0.13.2-alpha (2026-10-30)
+
+- If a room is online, `/reboot` first warns that all online rooms will be
+  disconnected and asks you to type yes or no. (This was meant to be in
+  0.13.1-alpha, but came after the release was made.)
+- `/reload` keeps playit.gg running if it works, so friends who play from home
+  stay connected. If playit.gg has to be restarted while someone plays from
+  home, it warns first in the same way
+- The line you type on stays at the bottom of the Terminal window, and new
+  messages show up above it. The up and down arrows bring back earlier
+  commands. Turn it off with `"input_line": false`
+- New commands `/settings` (shows all settings) and `/setting <name> = <value>`
+  (changes one, used after a restart). `/setting <name>` shows the value
+- The server is made for Among Us 19.0. New settings
+  `allow_future_game_versions` and `allow_older_game_versions` (both true):
+  with false, newer or older versions of the game can't join and get a message
+  in the game. The log says when someone has another version
+- playit.gg: the server waits until the old playitd has closed before it
+  starts a new one, and gives playit.gg a few seconds to let go of it. If the
+  test packet doesn't come through, playitd is restarted once. The messages
+  playitd writes while it signs in again ("timeout waiting for register
+  response") are only shown with `"debug": true`
+- Copyright line in the README, LICENSE and the box at the top of the window
+
 ## 0.13.1-alpha (2026-10-29)
 
 - The first start is a guide, one thing at a time: the language, the name,
@@ -14,8 +38,6 @@ All versions of Emergency Meeting. Versions before 0.12.1 had Swedish texts.
   again, it starts the rest as well as it can and shows what to do
 - New command `/reload`: starts playit.gg and the HTTPS address again
 - New command `/reboot`: restarts the whole server in the same window
-- If a room is online, `/reload` and `/reboot` first warn that all online
-  rooms will be disconnected and ask you to type yes or no
 - playit.gg: the server waits until playitd is connected before it creates
   the tunnel, and tries several times. If it still doesn't work, the box shows
   playit.gg's answer (for example "confirm your email first")

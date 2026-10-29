@@ -6,6 +6,7 @@ Everything to do with the Terminal window:
   - the questions the first time the server starts (language and name)
   - the steps while the server starts (1/5 Plugins ... 5/5 HTTPS)
   - commands you type in the window, for example /help
+  - the line at the bottom where you type them (new messages show up above it)
 
 The colors are ANSI codes that Terminal on the Mac understands. They are
 turned off when the output doesn't go to a real window (for example to a
@@ -18,12 +19,16 @@ i18n.py.
 
 from __future__ import annotations
 
+import atexit
+import codecs
+import collections
 import logging
 import os
+import signal
 import sys
 import threading
 import time
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Deque, Dict, List, Optional, Tuple
 
 from . import i18n
 from .i18n import tr
@@ -156,6 +161,8 @@ class _LockedHandler(logging.StreamHandler):
 
 
 def setup_logging(debug: bool, colors: bool, theme: str = "auto") -> None:
+    if not isinstance(sys.stdout, _Output):
+        sys.stdout = _Output(sys.stdout)  # type: ignore[assignment]
     enable_colors(colors, theme)
     handler = _LockedHandler(sys.stdout)
     handler.setFormatter(ColorFormatter())
@@ -188,10 +195,12 @@ def full_name(server_name: str, colored: bool = True) -> str:
     return f"{em} - {name}"
 
 
-def print_banner(server_name: str, version: str, lines: List[str]) -> None:
+def print_banner(server_name: str, version: str, lines: List[str], copyright_line: str = "") -> None:
     with _print_lock:
         print(paint(LINE, DARK_GRAY))
         print(f"  {full_name(server_name)}  {paint(f'(version {version})', GRAY)}")
+        if copyright_line:
+            print(f"  {paint(copyright_line, GRAY)}")
         print(paint(LINE, DARK_GRAY))
         for line in lines:
             print(f"  {line}")
@@ -314,25 +323,36 @@ def choose_language(default: str = "en") -> str:
 
     try:
         tty.setcbreak(fd)
-        while True:
-            key = os.read(fd, 8)
-            if not key:
+        pending = b""
+        chosen = False
+        while not chosen:
+            data = os.read(fd, 64)
+            if not data:
                 break
-            if key in (b"\r", b"\n"):
-                break
-            if key in (b"\x1b[A", b"\x1bOA", b"k", b"w") and selected > 0:
-                selected -= 1
-            elif key in (b"\x1b[B", b"\x1bOB", b"j", b"s") and selected < len(options) - 1:
-                selected += 1
-            elif key in (b"1", b"2"):
-                selected = min(int(key) - 1, len(options) - 1)
-            else:
-                continue
-            # Up past the three lines below the choices, draw them again, and back down
-            sys.stdout.write(f"\x1b[{len(options) + 3}F")
-            draw()
-            sys.stdout.write("\x1b[3E")
-            sys.stdout.flush()
+            pending += data
+            before = selected
+            # Several keys can come at once (for example an arrow and Enter)
+            while pending and not chosen:
+                if pending[:1] == b"\x1b" and pending[1:2] in (b"[", b"O"):
+                    if len(pending) < 3:
+                        break  # the rest of the arrow key is on its way
+                    key, pending = pending[:3], pending[3:]
+                else:
+                    key, pending = pending[:1], pending[1:]
+                if key in (b"\r", b"\n"):
+                    chosen = True
+                elif key in (b"\x1b[A", b"\x1bOA", b"k", b"w") and selected > 0:
+                    selected -= 1
+                elif key in (b"\x1b[B", b"\x1bOB", b"j", b"s") and selected < len(options) - 1:
+                    selected += 1
+                elif key in (b"1", b"2"):
+                    selected = min(int(key) - 1, len(options) - 1)
+            if selected != before:
+                # Up past the three lines below the choices, draw them again, and back down
+                sys.stdout.write(f"\x1b[{len(options) + 3}F")
+                draw()
+                sys.stdout.write("\x1b[3E")
+                sys.stdout.flush()
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, saved)
         sys.stdout.write("\x1b[?25h")  # show the cursor again
@@ -396,11 +416,13 @@ class Console:
     instead.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, input_line: bool = True) -> None:
         self.commands: Dict[str, Command] = {}
         self._waiting: Optional["_Request"] = None
         self._confirm: Optional[Callable[[], None]] = None  # what to do if the answer is yes
         self._lock = threading.Lock()
+        self._want_input_line = input_line
+        self._input: Optional[InputLine] = None
         self.add("help", "/help", "Show this list", self._help)
 
     def add(self, name: str, usage: str, text: str, action: Callable[[str], None]) -> None:
@@ -408,6 +430,8 @@ class Console:
         self.commands[name] = (usage, text, action)
 
     def start(self) -> None:
+        if self._want_input_line:
+            self._input = start_input_line()
         threading.Thread(target=self._read_loop, name="console", daemon=True).start()
 
     # --- For other parts of the server -----------------------------------
@@ -418,12 +442,18 @@ class Console:
         with self._lock:
             self._waiting = request
         if hidden:
-            _echo(False)
+            if self._input is not None:
+                self._input.set_hidden(True)
+            else:
+                _echo(False)
         try:
             request.done.wait()
         finally:
             if hidden:
-                _echo(True)
+                if self._input is not None:
+                    self._input.set_hidden(False)
+                else:
+                    _echo(True)
             with self._lock:
                 if self._waiting is request:
                     self._waiting = None
@@ -454,13 +484,20 @@ class Console:
 
     # --- Reading -------------------------------------------------------------
 
+    def _next_line(self) -> Optional[str]:
+        """The next line typed. None when there is no more (the window was closed)."""
+        if self._input is not None:
+            return self._input.read_line()
+        try:
+            line = sys.stdin.readline()
+        except (OSError, ValueError):
+            return None
+        return line if line != "" else None
+
     def _read_loop(self) -> None:
         while True:
-            try:
-                line = sys.stdin.readline()
-            except (OSError, ValueError):
-                return
-            if line == "":  # the window was closed
+            line = self._next_line()
+            if line is None:
                 with self._lock:
                     waiting = self._waiting
                 if waiting:
@@ -540,4 +577,264 @@ def _echo(on: bool) -> None:
 
 def restore_terminal() -> None:
     """Runs when the server stops, so that you always see what you type afterwards."""
+    if _input_line is not None:
+        _input_line.stop()
     _echo(True)
+
+
+# --- The input line at the bottom of the window ------------------------------------
+#
+# While the server runs, what you type stays on the last line of the window and
+# everything else is written above it, so that a log line never ends up in the
+# middle of a command you are typing.
+#
+# How: the terminal is told to only scroll lines 1 to rows-1 (a "scroll region",
+# ESC [ top ; bottom r). The last line is ours. The keys are read one at a time
+# without the terminal showing them (cbreak mode), and we draw the line ourselves.
+# The place where the next message goes is kept with "save cursor" (ESC 7) and
+# "restore cursor" (ESC 8).
+#
+# It is turned off when the output doesn't go to a real Terminal window, or with
+# "input_line": false in config.json.
+
+PROMPT = "> "
+
+
+class _Output:
+    """Stands in for sys.stdout, so that everything printed goes above the input line."""
+
+    def __init__(self, stream) -> None:
+        self._stream = stream
+
+    @property
+    def stream(self):
+        return self._stream
+
+    def write(self, text: str) -> int:
+        line = _input_line
+        if line is not None and line.active:
+            return line.write(text)
+        return self._stream.write(text)
+
+    def flush(self) -> None:
+        line = _input_line
+        if line is None or not line.active:
+            self._stream.flush()
+
+    def __getattr__(self, name: str):
+        return getattr(self._stream, name)
+
+
+class InputLine:
+    def __init__(self, out, fd: int) -> None:
+        self.out = out  # the real stdout
+        self.fd = fd  # the keyboard (stdin)
+        self.active = False
+        self.text = ""
+        self.hidden = False
+        self._rows = 0
+        self._columns = 0
+        self._partial = ""  # printed text that doesn't end with a newline yet
+        self._saved_tty = None
+        self._saved_stderr = None
+        self._decoder = codecs.getincrementaldecoder("utf-8")("replace")
+        self._escape = ""  # an arrow key or similar being read
+        self._last_was_return = False
+        self._lines: Deque[str] = collections.deque()
+        self._history: List[str] = []
+        self._browsing: Optional[int] = None
+        self._draft = ""
+
+    # --- On and off ----------------------------------------------------------
+
+    def start(self) -> bool:
+        try:
+            import termios
+            import tty
+            self._saved_tty = termios.tcgetattr(self.fd)
+            size = os.get_terminal_size(self.out.fileno())
+        except Exception:
+            return False
+        if size.lines < 6 or size.columns < 20:
+            return False
+        with _print_lock:
+            try:
+                tty.setcbreak(self.fd)
+            except Exception:
+                return False
+            self._rows, self._columns = size.lines, size.columns
+            # Make room, set the scroll region (that moves the cursor to the top)
+            # and go back to where the text was, inside the region.
+            self.out.write(f"\n\x1b7\x1b[1;{self._rows - 1}r\x1b8\x1b[1A\x1b7")
+            self.active = True
+            self._draw()
+            self._saved_stderr = sys.stderr
+            sys.stderr = _Output(sys.stderr)  # type: ignore[assignment]
+        try:
+            signal.signal(signal.SIGWINCH, self._window_changed)
+        except (ValueError, AttributeError, OSError):
+            pass  # not the main thread, or not a Mac/Linux
+        return True
+
+    def stop(self) -> None:
+        with _print_lock:
+            if not self.active:
+                return
+            if self._partial:
+                self.write("\n")
+            self.active = False
+            # Clear our line, let the whole window scroll again, back to the text.
+            self.out.write(f"\x1b[{self._rows};1H\x1b[2K\x1b[r\x1b8")
+            self.out.flush()
+            if self._saved_stderr is not None:
+                sys.stderr = self._saved_stderr
+            try:
+                import termios
+                termios.tcsetattr(self.fd, termios.TCSADRAIN, self._saved_tty)
+            except Exception:
+                pass
+
+    def _window_changed(self, *_args) -> None:
+        # A signal handler must not wait for the lock, so a thread does the work.
+        threading.Thread(target=self._redraw_after_resize, daemon=True).start()
+
+    def _redraw_after_resize(self) -> None:
+        with _print_lock:
+            if self.active and self._check_size():
+                self._draw()
+
+    def _check_size(self) -> bool:
+        """Sets the scroll region again if the window has a new size. Returns True if it had."""
+        try:
+            size = os.get_terminal_size(self.out.fileno())
+        except OSError:
+            return False
+        if (size.lines, size.columns) == (self._rows, self._columns) or size.lines < 3:
+            return False
+        self._rows, self._columns = size.lines, size.columns
+        self.out.write(f"\x1b[1;{self._rows - 1}r\x1b[{self._rows - 1};1H\x1b7")
+        return True
+
+    # --- Output --------------------------------------------------------------
+
+    def write(self, text: str) -> int:
+        """Called instead of sys.stdout.write. Whole lines go above the input line."""
+        with _print_lock:
+            self._partial += text
+            if "\n" not in self._partial:
+                return len(text)
+            *lines, self._partial = self._partial.split("\n")
+            self._check_size()
+            self.out.write("\x1b8" + "".join(line + "\n" for line in lines) + "\x1b7")
+            self._draw()
+        return len(text)
+
+    def _draw(self) -> None:
+        shown = "*" * len(self.text) if self.hidden else self.text
+        room = max(1, self._columns - len(PROMPT) - 1)
+        if len(shown) > room:
+            shown = shown[-room:]
+        self.out.write(f"\x1b[{self._rows};1H\x1b[2K{paint(PROMPT, GRAY)}{shown}")
+        self.out.flush()
+
+    def set_hidden(self, hidden: bool) -> None:
+        """Hidden: show * instead of what is typed (for keys)."""
+        with _print_lock:
+            self.hidden = hidden
+            if self.active:
+                self._draw()
+
+    # --- Keys ---------------------------------------------------------------
+
+    def read_line(self) -> Optional[str]:
+        """Waits for Enter and returns the line. None when the window is closed."""
+        while not self._lines:
+            try:
+                data = os.read(self.fd, 1024)
+            except InterruptedError:
+                continue
+            except OSError:
+                return None
+            if not data:
+                return None
+            for key in self._decoder.decode(data):
+                self._key(key)
+            with _print_lock:
+                if self.active:
+                    self._draw()
+        return self._lines.popleft()
+
+    def _key(self, key: str) -> None:
+        if self._escape:
+            self._escape += key
+            if len(self._escape) == 2 and key not in "[O":
+                self._escape = ""  # Alt + a key: ignore
+            elif len(self._escape) > 2 and "@" <= key <= "~":  # the end of the sequence
+                sequence, self._escape = self._escape, ""
+                if sequence in ("\x1b[A", "\x1bOA"):
+                    self._browse(-1)
+                elif sequence in ("\x1b[B", "\x1bOB"):
+                    self._browse(1)
+            elif len(self._escape) > 16:
+                self._escape = ""
+            return
+        was_return, self._last_was_return = self._last_was_return, key == "\r"
+        if key == "\x1b":
+            self._escape = key
+        elif key == "\n" and was_return:
+            pass  # \r\n (for example when pasting): one Enter, not two
+        elif key in "\r\n":
+            self._submit()
+        elif key in "\x7f\x08":  # Backspace
+            self.text = self.text[:-1]
+        elif key == "\x15":  # Ctrl+U: clear the line
+            self.text = ""
+        elif key == "\x17":  # Ctrl+W: remove the last word
+            self.text = self.text.rstrip()
+            self.text = self.text[:self.text.rfind(" ") + 1]
+        elif key == "\t":
+            self.text += " "
+        elif key >= " ":
+            self.text += key
+
+    def _submit(self) -> None:
+        line, self.text = self.text, ""
+        self._browsing = None
+        if line.strip() and not self.hidden:
+            if not self._history or self._history[-1] != line:
+                self._history.append(line)
+            self.write(f"{paint(PROMPT, GRAY)}{line}\n")  # what you typed stays in the window
+        self._lines.append(line)
+
+    def _browse(self, step: int) -> None:
+        """Up and down arrows: earlier commands."""
+        if self.hidden or not self._history:
+            return
+        if self._browsing is None:
+            self._browsing, self._draft = len(self._history), self.text
+        self._browsing = max(0, min(len(self._history), self._browsing + step))
+        self.text = self._history[self._browsing] if self._browsing < len(self._history) else self._draft
+
+
+_input_line: Optional[InputLine] = None
+
+
+def start_input_line() -> Optional[InputLine]:
+    """Turns on the input line at the bottom if this is a real Terminal window."""
+    global _input_line
+    out = sys.stdout.stream if isinstance(sys.stdout, _Output) else None
+    if out is None or os.environ.get("TERM", "") in ("", "dumb") or sys.stdin is None:
+        return None
+    try:
+        if not (out.isatty() and sys.stdin.isatty()):
+            return None
+        fd = sys.stdin.fileno()
+    except (OSError, ValueError, AttributeError):
+        return None
+    line = InputLine(out, fd)
+    _input_line = line
+    if not line.start():
+        _input_line = None
+        return None
+    atexit.register(line.stop)  # the window must always work again afterwards
+    return line
