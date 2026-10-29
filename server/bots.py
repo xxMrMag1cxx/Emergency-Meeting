@@ -1,28 +1,28 @@
 """
-Bots: låtsasspelare som finns på servern i stället för i en telefon eller dator.
+Bots: pretend players that live on the server instead of in a phone or computer.
 
-För de riktiga spelarna ser en bot ut precis som en vanlig spelare. Servern
-låtsas att boten har en egen anslutning och gör samma saker som spelet gör
-när någon går med:
+To the real players a bot looks exactly like an ordinary player. The server
+pretends that the bot has its own connection and does the same things the
+game does when someone joins:
 
-  1. går med i spelet (JoinGame)
-  2. "laddar lobbyn" (SceneChange), då skapar värden en gubbe åt boten
-  3. ber värden om ett namn och en färg (CheckName, CheckColor)
-  4. säger "redo" när en runda startar, och går med igen när rundan är slut
+  1. joins the game (JoinGame)
+  2. "loads the lobby" (SceneChange), then the host creates a character for the bot
+  3. asks the host for a name and a color (CheckName, CheckColor)
+  4. says "ready" when a round starts, and joins again when the round is over
 
-Boten kan gå (om walk är på). Den skickar sin position tio gånger i
-sekunden, precis som spelet gör när man går. Vägen räknas ut med kartorna i
-navigation.py, så att boten går runt väggarna.
+The bot can walk (if walk is on). It sends its position ten times a second,
+just like the game does when you walk. The path is worked out with the maps
+in navigation.py, so that the bot walks around the walls.
 
-  - I lobbyn går boten runt lite då och då.
-  - Under en runda går boten till sina uppdrag och gör dem på plats.
-    Impostor-bots låtsas göra uppdrag (men gör dem inte på riktigt).
-  - När allt är klart vandrar boten mellan rummen.
-  - På möten står boten still vid bordet och röstar skip när
-    diskussionstiden är slut (om do_tasks är på).
+  - In the lobby the bot walks around a bit now and then.
+  - During a round the bot walks to its tasks and does them on the spot.
+    Impostor bots pretend to do tasks (but don't do them for real).
+  - When everything is done the bot wanders between the rooms.
+  - In meetings the bot stands still at the table and votes skip when
+    the discussion time is over (if do_tasks is on).
 
-Boten kan inte döda eller rapportera. Plugins skapar bots med
-lobby.add_bot("Bot_1") och tar bort dem med lobby.remove_bot(bot).
+The bot can't kill or report. Plugins create bots with
+lobby.add_bot("Bot_1") and remove them with lobby.remove_bot(bot).
 """
 
 from __future__ import annotations
@@ -46,24 +46,24 @@ log = logging.getLogger("bot")
 RPC_CHECK_NAME = protocol.RPC_CHECK_NAME
 RPC_CHECK_COLOR = protocol.RPC_CHECK_COLOR
 
-TICK = 0.1  # hur ofta (sekunder) boten skickar sin position när den går
-BASE_SPEED = 2.5  # enheter per sekund vid "Player Speed" 1x
-INTRO_TIME = 6.5  # rundans intro ("Shhh!" och rollen) innan man kan gå
-MEETING_INTRO = 6.0  # mötets intro innan diskussionstiden börjar räknas
-EXILE_TIME = 8.0  # utröstningen efter ett möte innan man kan gå igen
-DEATH_PAUSE = 3.0  # efter att ha blivit dödad, innan spöket börjar gå
+TICK = 0.1  # how often (seconds) the bot sends its position when it walks
+BASE_SPEED = 2.5  # units per second at "Player Speed" 1x
+INTRO_TIME = 6.5  # the round's intro ("Shhh!" and the role) before you can walk
+MEETING_INTRO = 6.0  # the meeting's intro before the discussion time starts counting
+EXILE_TIME = 8.0  # the ejection after a meeting before you can walk again
+DEATH_PAUSE = 3.0  # after being killed, before the ghost starts walking
 
-STOP_TIME = {"Short": (2.5, 5.0), "Common": (2.5, 5.0), "Long": (4.0, 8.0)}  # tid vid varje konsol
-WANDER_PAUSE = (2.0, 6.0)  # paus mellan promenader när alla uppdrag är klara
+STOP_TIME = {"Short": (2.5, 5.0), "Common": (2.5, 5.0), "Long": (4.0, 8.0)}  # time at each console
+WANDER_PAUSE = (2.0, 6.0)  # pause between walks when all tasks are done
 LOBBY_PAUSE = (3.0, 9.0)
 LOBBY_RADIUS = 2.5
 
-# Utan kartdata (en ny karta vi inte känner till): så lång tid tar ett uppdrag.
+# Without map data (a new map we don't know about): this is how long a task takes.
 TASK_TIME = (12.0, 25.0)
 
 
 class BotConnection:
-    """Ser ut som en anslutning för resten av servern, men är en bot."""
+    """Looks like a connection to the rest of the server, but is a bot."""
 
     is_bot = True
 
@@ -96,14 +96,14 @@ class BotConnection:
         self.connected = True
         self.control_net_id: Optional[int] = None
 
-        # Rörelser
+        # Movement
         self.transform_net_id: Optional[int] = None
         self.sequence = 0
-        self.pos: Optional[Point] = None  # var fötterna är
+        self.pos: Optional[Point] = None  # where the feet are
         self._activity: Optional[asyncio.Future] = None
 
-        # Det boten vet om den pågående rundan.
-        self.round = 0  # ökar varje runda, så att gamla timers inte gör något
+        # What the bot knows about the current round.
+        self.round = 0  # goes up every round, so that old timers don't do anything
         self._reset_round()
 
     def _reset_round(self) -> None:
@@ -111,8 +111,8 @@ class BotConnection:
         self.alive = True
         self.in_meeting = False
         self.round_started = False
-        self.task_types: List[int] = []  # uppdragens typnummer på kartan
-        self.done: Set[int] = set()  # uppdrag (plats i listan) som är gjorda
+        self.task_types: List[int] = []  # the tasks' type numbers on the map
+        self.done: Set[int] = set()  # tasks (place in the list) that are done
         self.task_count = 0
         self.tasks_done = 0
 
@@ -130,7 +130,7 @@ class BotConnection:
     def _lobby(self):
         return getattr(self.player, "lobby", None)
 
-    # --- Servern skickar till boten --------------------------------------
+    # --- The server sends to the bot --------------------------------------
 
     def send_reliable(self, payload: bytes) -> None:
         loop = asyncio.get_event_loop()
@@ -157,7 +157,7 @@ class BotConnection:
                     pass
 
     def _watch_game_data(self, message: MessageReader) -> None:
-        """Tittar efter saker som rör boten: roll, uppdrag, död och möten."""
+        """Looks for things that concern the bot: role, tasks, death and meetings."""
         reader = MessageReader(message.data)
         reader.read_int32()
         if message.tag == protocol.GAME_DATA_TO:
@@ -176,8 +176,8 @@ class BotConnection:
             call = part.read_byte()
             if call == protocol.RPC_SET_ROLE and net_id == self.control_net_id:
                 self.role = part.read_uint16()
-                log.debug("%s fick rollen %s", self.name, protocol.ROLES.get(self.role, self.role))
-                self._later(INTRO_TIME + 2.0, self._round_begins)  # om SetTasks aldrig kommer
+                log.debug("%s got the role %s", self.name, protocol.ROLES.get(self.role, self.role))
+                self._later(INTRO_TIME + 2.0, self._round_begins)  # if SetTasks never comes
             elif call == protocol.RPC_SET_TASKS and my_info is not None and net_id == my_info.net_id:
                 count = part.read_packed_uint32()
                 self.task_types = list(part.read_bytes(count))
@@ -202,10 +202,10 @@ class BotConnection:
         return lobby.find_player_info(self.client_id) if lobby is not None else None
 
     def send_unreliable(self, payload: bytes) -> None:
-        pass  # de andras rörelser, boten bryr sig inte
+        pass  # the others' movements, the bot doesn't care
 
     def close(self) -> None:
-        """Boten slutar med allt (t.ex. när spelet stängs)."""
+        """The bot stops everything (for example when the game closes)."""
         self.connected = False
         self._stop()
 
@@ -217,7 +217,7 @@ class BotConnection:
         if player is not None:
             self.game.remove_player(player.lobby, self.client_id, protocol.DisconnectReason.EXIT_GAME)
 
-    # --- Boten skickar till servern (som om den vore spelet) -------------
+    # --- The bot sends to the server (as if it were the game) ------------
 
     def _send_as_game(self, tag: int, payload: bytes, handler) -> None:
         if self.connected:
@@ -245,7 +245,7 @@ class BotConnection:
         self._send_as_game(protocol.JOIN_GAME, payload, self.game.handle_join_game)
 
     def join_again(self) -> None:
-        """Efter en runda går alla med i lobbyn igen, boten också."""
+        """After a round everyone joins the lobby again, the bot too."""
         lobby = self._lobby()
         if lobby is not None and self.connected:
             self.join(lobby.code_int)
@@ -256,7 +256,7 @@ class BotConnection:
         self._game_data(part.to_bytes())
 
     def on_spawned(self, net_id: int) -> None:
-        """Värden har skapat botens gubbe. Be om namn och färg, som spelet gör."""
+        """The host has created the bot's character. Ask for name and color, like the game does."""
         self.control_net_id = net_id
         lobby = self._lobby()
         if lobby is None:
@@ -268,17 +268,17 @@ class BotConnection:
             self._rpc(net_id, RPC_CHECK_COLOR, color),
             to=lobby.host_id,
         )
-        # Som ett riktigt spel: berätta nivå och kläder för alla. Utan kläder
-        # blir boten en "grön böna" med ofullständig spelarinfo, och det kan
-        # få värdens spel att krångla.
+        # Like a real game: tell everyone the level and clothes. Without clothes
+        # the bot becomes a "green bean" with incomplete player info, and that can
+        # make the host's game act up.
         parts = [self._rpc(net_id, protocol.RPC_SET_LEVEL, MessageWriter().write_packed_uint32(0).to_bytes())]
         for kind, item in self._outfit(lobby).items():
-            args = MessageWriter().write_string(item).write_byte(5).to_bytes()  # 5 = ny version av plagget
+            args = MessageWriter().write_string(item).write_byte(5).to_bytes()  # 5 = new version of the item
             parts.append(self._rpc(net_id, protocol.COSMETIC_RPCS[kind], args))
         self._game_data(*parts)
-        log.debug("%s bad värden om namn och färg och tog på sig kläder", self.name)
+        log.debug("%s asked the host for name and color and put on clothes", self.name)
 
-        # Var står gubben? Värden skrev det när den skapade gubben.
+        # Where does the character stand? The host wrote it when it created the character.
         transform = lobby.transforms.get(net_id)
         if transform is not None:
             self.transform_net_id, self.sequence, (x, y) = transform
@@ -290,7 +290,7 @@ class BotConnection:
     def _outfit(lobby) -> dict:
         outfit = dict(protocol.EMPTY_COSMETICS)
         if getattr(lobby, "known_nameplate", ""):
-            outfit["nameplate"] = lobby.known_nameplate  # en namnskylt vi vet att spelet känner till
+            outfit["nameplate"] = lobby.known_nameplate  # a nameplate we know the game knows about
         return outfit
 
     def send_ready(self) -> None:
@@ -298,10 +298,10 @@ class BotConnection:
         part.write_packed_int32(self.client_id).end_message()
         self._game_data(part.to_bytes())
 
-    # --- Gå ----------------------------------------------------------------
+    # --- Walk --------------------------------------------------------------
 
     def _send_position(self) -> None:
-        """Berättar för alla var boten är (som spelet gör när man går)."""
+        """Tells everyone where the bot is (like the game does when you walk)."""
         lobby = self._lobby()
         if lobby is None or self.transform_net_id is None or self.pos is None:
             return
@@ -311,11 +311,11 @@ class BotConnection:
         w.start_message(protocol.GameDataTag.DATA).write_packed_uint32(self.transform_net_id)
         w.write_uint16(self.sequence).write_packed_uint32(1).write_vector2(x, y + FEET_OFFSET)
         w.end_message().end_message()
-        # Osäkert paket (som riktiga rörelser): om ett försvinner kommer nästa strax.
+        # Unreliable packet (like real movements): if one disappears the next one comes soon.
         lobby.send_to_all(w.to_bytes(), reliable=False, except_id=self.client_id)
 
     def _snap_to(self, point: Point) -> None:
-        """Flyttar boten direkt till en plats (som när man åker genom en ventil)."""
+        """Moves the bot straight to a place (like when you go through a vent)."""
         if self.transform_net_id is None:
             return
         self.pos = point
@@ -329,7 +329,7 @@ class BotConnection:
         return BASE_SPEED * max(0.25, modifier)
 
     async def _walk_to(self, nav: NavMap, goal: Point) -> bool:
-        """Går till goal runt väggarna. False om det inte finns någon väg dit."""
+        """Walks to goal around the walls. False if there is no path there."""
         if self.pos is None or self.transform_net_id is None:
             return False
         loop = asyncio.get_event_loop()
@@ -353,10 +353,10 @@ class BotConnection:
                 self._send_position()
         return True
 
-    # --- Saker boten håller på med (en i taget) ---------------------------
+    # --- Things the bot is doing (one at a time) ---------------------------
 
     def _start(self, activity, *args) -> None:
-        """Börjar med något nytt (och slutar med det gamla)."""
+        """Starts something new (and stops the old one)."""
         self._stop()
         if self.connected:
             self._activity = asyncio.ensure_future(self._run(activity(*args)))
@@ -371,11 +371,11 @@ class BotConnection:
             await coroutine
         except asyncio.CancelledError:
             raise
-        except Exception:  # en bot som krånglar får inte krascha servern
-            log.exception("%s: något gick fel", self.name)
+        except Exception:  # a bot that acts up must not crash the server
+            log.exception("%s: something went wrong", self.name)
 
     def _later(self, seconds: float, action) -> None:
-        """Kör `action` om en stund, men bara om det fortfarande är samma runda."""
+        """Runs `action` in a while, but only if it is still the same round."""
         current = self.round
 
         def run() -> None:
@@ -389,7 +389,7 @@ class BotConnection:
         try:
             return await loop.run_in_executor(None, navigation.load, key)
         except (OSError, ValueError, KeyError) as error:
-            log.warning("Kunde inte läsa kartan %s: %s", key, error)
+            log.warning("Could not read the map %s: %s", key, error)
             return None
 
     async def _current_map(self) -> Optional[NavMap]:
@@ -397,29 +397,29 @@ class BotConnection:
         key = navigation.MAP_FILES.get(lobby.options.map_id) if lobby is not None else None
         return await self._load_map(key) if key else None
 
-    # --- I lobbyn ----------------------------------------------------------
+    # --- In the lobby ------------------------------------------------------
 
     async def _wander_lobby(self) -> None:
         nav = await self._load_map("lobby")
         if nav is None or self.pos is None or not nav.is_walkable(self.pos):
-            return  # lobbyn ser inte ut som vi tror: stå still hellre än att gå in i väggar
+            return  # the lobby doesn't look like we think: stand still rather than walk into walls
         while True:
             await asyncio.sleep(random.uniform(*LOBBY_PAUSE))
             target = nav.random_point_near(self.pos, LOBBY_RADIUS)
             if target is not None:
                 await self._walk_to(nav, target)
 
-    # --- Rundan -------------------------------------------------------------
+    # --- The round ----------------------------------------------------------
 
     def _round_begins(self) -> None:
-        """Roller och uppdrag är utdelade: snart börjar rundan."""
+        """Roles and tasks are handed out: the round starts soon."""
         if self.round_started:
             return
         self.round_started = True
         lobby = self._lobby()
         self._snap_to_spawn(initial=True)
         if lobby is not None and lobby.options.map_id == 4:
-            # The Airship: alla väljer var de börjar efter introt.
+            # The Airship: everyone chooses where they start after the intro.
             self._later(INTRO_TIME + random.uniform(1.0, 4.0), lambda: self._resume(airship_spawn=True))
             return
         self._later(INTRO_TIME, self._resume)
@@ -434,7 +434,7 @@ class BotConnection:
         self._snap_to(nav.spawn_position(info.player_id, len(lobby.server_objects), initial))
 
     def _resume(self, airship_spawn: bool = False) -> None:
-        """Börja (eller fortsätt) gå runt och göra uppdrag."""
+        """Start (or continue) walking around and doing tasks."""
         lobby = self._lobby()
         if self.in_meeting or lobby is None or not lobby.is_started:
             return
@@ -451,7 +451,7 @@ class BotConnection:
         if nav is None or not self.walk or self.pos is None:
             await self._play_without_walking()
             return
-        await asyncio.sleep(random.uniform(0.0, 1.5))  # alla börjar inte gå exakt samtidigt
+        await asyncio.sleep(random.uniform(0.0, 1.5))  # not everyone starts walking at exactly the same time
         while True:
             index = self._next_task(nav)
             if index is not None:
@@ -461,11 +461,11 @@ class BotConnection:
 
     def _wants_tasks(self) -> bool:
         if self.is_impostor:
-            return True  # låtsas göra uppdrag
+            return True  # pretends to do tasks
         return self.do_tasks
 
     def _next_task(self, nav: NavMap) -> Optional[int]:
-        """Det närmaste uppdraget som inte är gjort än."""
+        """The nearest task that isn't done yet."""
         if not self._wants_tasks():
             return None
         left = [i for i in range(len(self.task_types)) if i not in self.done]
@@ -476,17 +476,17 @@ class BotConnection:
             task = nav.tasks.get(self.task_types[index])
             consoles = task["consoles"] if task else []
             nearest = min((distance(self.pos, c) for c in consoles), default=20.0)
-            # Lite slump, annars går alla bots till samma uppdrag i en lång rad.
+            # A bit of randomness, otherwise all bots walk to the same task in a long line.
             return nearest * random.uniform(0.6, 1.8)
 
         return min(left, key=how_far)
 
     def _task_stops(self, nav: NavMap, type_id: int) -> List[Point]:
-        """Konsolerna boten ska gå till för ett uppdrag, i den ordning den går."""
+        """The consoles the bot should walk to for a task, in the order it walks."""
         task = nav.tasks.get(type_id)
         consoles = list(task["consoles"]) if task else []
         if not consoles:
-            # Vi vet inte var uppdraget görs: gå till något rum i stället.
+            # We don't know where the task is done: walk to some room instead.
             rooms = nav.room_spots(self.pos)
             return [random.choice(rooms)] if rooms else []
         if task["type"] == "FixWiring":
@@ -498,7 +498,7 @@ class BotConnection:
         stops: List[Point] = []
         here = self.pos
         for _ in range(min(count, len(consoles))):
-            # En av de två närmaste konsolerna (då väljer inte alla bots samma).
+            # One of the two nearest consoles (then not all bots choose the same one).
             console = random.choice(sorted(consoles, key=lambda c: distance(here, c))[:2])
             consoles.remove(console)
             stops.append(console)
@@ -509,7 +509,7 @@ class BotConnection:
         type_id = self.task_types[index]
         task = nav.tasks.get(type_id)
         length = task["length"] if task else "Short"
-        log.debug("%s går till uppdraget %s", self.name, task["type"] if task else type_id)
+        log.debug("%s walks to the task %s", self.name, task["type"] if task else type_id)
         for stop in self._task_stops(nav, type_id):
             spot = nav.console_spot(stop) or nav.nearest_walkable(stop, 1.6)
             if spot is not None:
@@ -520,7 +520,7 @@ class BotConnection:
             self.complete_task(index, task["type"] if task else "")
 
     async def _wander(self, nav: NavMap) -> None:
-        """Alla uppdrag är klara: gå till ett slumpat rum och vänta lite."""
+        """All tasks are done: walk to a random room and wait a bit."""
         rooms = nav.room_spots(self.pos)
         if rooms:
             room = random.choice(rooms)
@@ -529,7 +529,7 @@ class BotConnection:
         await asyncio.sleep(random.uniform(*WANDER_PAUSE))
 
     async def _play_without_walking(self) -> None:
-        """Ingen karta (eller walk av): gör uppdragen på stället, med en stund emellan."""
+        """No map (or walk off): do the tasks on the spot, with a while in between."""
         if self.is_impostor or not self.do_tasks:
             return
         for index in range(len(self.task_types)):
@@ -546,15 +546,15 @@ class BotConnection:
                                   MessageWriter().write_packed_uint32(index).to_bytes()))
         self.tasks_done += 1
         what = " (" + re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", kind) + ")" if kind else ""
-        log.info("%s gjorde ett uppdrag%s (%d/%d)", self.name, what, self.tasks_done, self.task_count)
+        log.info("%s did a task%s (%d/%d)", self.name, what, self.tasks_done, self.task_count)
 
     def _killed(self) -> None:
         self.alive = False
         self._stop()
-        log.debug("%s blev dödad", self.name)
-        self._later(DEATH_PAUSE, self._resume)  # spöken kan fortsätta göra uppdrag
+        log.debug("%s was killed", self.name)
+        self._later(DEATH_PAUSE, self._resume)  # ghosts can keep doing tasks
 
-    # --- Möten ---------------------------------------------------------------
+    # --- Meetings ------------------------------------------------------------
 
     def _meeting_started(self) -> None:
         self.in_meeting = True
@@ -572,7 +572,7 @@ class BotConnection:
                     lambda: self._resume(airship_spawn=airship))
 
     def _plan_vote(self) -> None:
-        """Rösta skip en stund efter att diskussionstiden är slut."""
+        """Vote skip a while after the discussion time is over."""
         lobby = self._lobby()
         discussion = lobby.setting_number("Discussion Time", 15.0) if lobby is not None else 15.0
         voting = lobby.setting_number("Voting Time", 120.0) if lobby is not None else 120.0
@@ -589,4 +589,4 @@ class BotConnection:
             return
         args = MessageWriter().write_byte(info.player_id).write_byte(protocol.VOTE_SKIP).to_bytes()
         self._game_data(self._rpc(lobby.meeting_hud_net_id, protocol.RPC_CAST_VOTE, args), to=lobby.host_id)
-        log.debug("%s röstade skip", self.name)
+        log.debug("%s voted skip", self.name)

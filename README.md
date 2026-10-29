@@ -1,453 +1,490 @@
 # Emergency Meeting
 
-En egen Among Us-server, byggd från grunden i Python. Servern körs på en Mac
-(macOS 12.7 Monterey eller nyare) och målet är att den ska kunna köra spelet
-med egna plugins.
+Our own Among Us server, built from scratch in Python. The server runs on a
+Mac (macOS 12.7 Monterey or newer) and the goal is for it to run the game
+with our own plugins.
 
-## Färdplan
+## Roadmap
 
-- [x] **Steg 1:** Servern tar emot spelet, läser spelarens namn och version,
-      och svarar med ett eget meddelande som syns i spelet
-- [x] **Steg 2:** HTTPS via en Cloudflare-tunnel, så att spelet kan ansluta
-      från andra enheter
-- [x] **Steg 3:** Skapa spel, få en spelkod och komma in i lobbyn
-      (behöver testas med riktiga spelet)
-- [x] **Steg 3b:** Loggen visar alla ändringar av spelinställningar
-- [ ] **Steg 4:** Gå med i ett spel med spelkoden, flera spelare i samma lobby
-      (klart i servern, behöver testas med två enheter)
-- [x] **Steg 5:** Spela en hel runda och "Play Again". Loggen visar möten,
-      dödsfall och röstning, och en sammanfattning när rundan är slut
-      (behöver testas med riktiga spelet)
-- [x] **Steg 6:** Eget pluginsystem, se [plugins/README.md](plugins/README.md)
-- [x] **Steg 7:** Impostors kan döda (servern bestämmer, som Among Us egna
-      servrar). Bots går runt i lobbyn och på alla kartor och går till sina
-      uppdrag (behöver testas med riktiga spelet)
-- [x] **Steg 8:** Kompisar kan spela från sina egna hem, på dator eller
-      mobil, via playit.gg. Inget behöver ändras i routern
-- [x] **Steg 9:** En HTTPS-adress som är samma varje gång (ngrok), så att
-      kompisar bara behöver lägga till servern en gång
-- [x] **Steg 10:** En anslutningssida som visar rätt steg för varje enhet,
-      spelkoderna, en QR-kod och ett färdigt meddelande till kompisar
-- [x] **Steg 11:** Egna namn på servern, kommandon i Terminal-fönstret
-      (`/help`) och färger i loggen (behöver testas på Macen)
+- [x] **Step 1:** The server receives the game, reads the player's name and
+      version, and answers with its own message that shows up in the game
+- [x] **Step 2:** HTTPS through a Cloudflare tunnel, so that the game can
+      connect from other devices
+- [x] **Step 3:** Host a game, get a game code and get into the lobby
+      (needs testing with the real game)
+- [x] **Step 3b:** The log shows every change of the game settings
+- [ ] **Step 4:** Join a game with the game code, several players in the same
+      lobby (done in the server, needs testing with two devices)
+- [x] **Step 5:** Play a whole round and "Play Again". The log shows meetings,
+      deaths and votes, and a summary when the round is over
+      (needs testing with the real game)
+- [x] **Step 6:** Our own plugin system, see [plugins/README.md](plugins/README.md)
+- [x] **Step 7:** Impostors can kill (the server decides, like Among Us's own
+      servers). Bots walk around in the lobby and on all maps and walk to
+      their tasks (needs testing with the real game)
+- [x] **Step 8:** Friends can play from their own homes, on a computer or a
+      phone, through playit.gg. Nothing needs to be changed in the router
+- [x] **Step 9:** An HTTPS address that is the same every time (ngrok), so
+      that friends only have to add the server once
+- [x] **Step 10:** A join page that shows the right steps for every device,
+      the game codes, a QR code and a ready-made message for friends
+- [x] **Step 11:** Our own name for the server, commands in the Terminal
+      window (`/help`) and colors in the log (needs testing on the Mac)
+- [x] **Step 12:** Everything in English, and the Terminal window in English
+      or Swedish (needs testing on the Mac)
 
-## Kom igång på Macen
+## Get started on the Mac
 
-### 1. Kolla att Python finns
+### 1. Check that Python is there
 
-Öppna **Terminal** (finns under Program → Verktygsprogram) och skriv:
+Open **Terminal** (in Applications → Utilities) and type:
 
 ```
 python3 --version
 ```
 
-Om det står `Python 3.8` eller högre är allt klart. Om det står något annat,
-ladda ner senaste Python från <https://www.python.org/downloads/macos/>
-(välj "macOS 64-bit universal2 installer") och installera det.
+If it says `Python 3.8` or higher, everything is ready. If it says something
+else, download the latest Python from <https://www.python.org/downloads/macos/>
+(choose "macOS 64-bit universal2 installer") and install it.
 
-Servern använder bara det som följer med Python.
+The server only uses what comes with Python.
 
-### 2. Hämta koden
+### 2. Get the code
 
-På GitHub-sidan för projektet: klicka på den gröna knappen **Code** och välj
-**Download ZIP**. Packa upp mappen. Var den hamnar spelar ingen roll, alla
-filer nedan startas med dubbelklick i Finder.
+On the project's GitHub page: click the green **Code** button and choose
+**Download ZIP**. Unpack the folder. It doesn't matter where it ends up, all
+the files below are started with a double-click in Finder.
 
-> Första gången macOS säger att en fil inte går att öppna eftersom den kommer
-> från internet: högerklicka på filen, välj **Öppna** och sedan **Öppna** igen.
+> The first time macOS says a file can't be opened because it comes from the
+> internet: right-click the file, choose **Open** and then **Open** again.
 
-### 3. Hämta cloudflared (en gång)
+### 3. Get cloudflared (once)
 
-Dubbelklicka på **`hamta-cloudflared.command`**.
+Double-click **`get-cloudflared.command`**.
 
-Among Us kräver HTTPS när spelet och servern är på olika enheter. Servern
-använder helst ngrok (se nedan), och cloudflared är reserven om ngrok inte
-fungerar. cloudflared ger en gratis HTTPS-adress via Cloudflare, utan konto.
-Skriptet väljer själv en version som fungerar på er macOS.
+Among Us requires HTTPS when the game and the server are on different
+devices. The server prefers ngrok (see below), and cloudflared is the backup
+if ngrok doesn't work. cloudflared gives a free HTTPS address through
+Cloudflare, without an account. The script picks a version that works on
+your macOS by itself.
 
-### 4. Starta servern
+### 4. Start the server
 
-Dubbelklicka på **`start.command`**. Om macOS frågar om Python får ta emot
-inkommande anslutningar, välj **Tillåt**.
+Double-click **`start.command`**. If macOS asks if Python may accept
+incoming connections, choose **Allow**.
 
-Första gången frågar servern efter tre saker. Alla behövs bara en gång:
+The first time, the server asks for a few things. They are only needed once:
 
-- **NAME YOUR SERVER**: skriv ett namn på servern och tryck Enter (eller
-  bara Enter för att behålla *Emergency Meeting*). Namnet syns som region i
-  Among Us och på startsidan. Det går att byta senare med
-  `/changeservername`, se [Kommandon](#kommandon).
-- **FAST HTTPS-ADRESS MED NGROK**: klistra in en nyckel från ngrok, se
-  [Fast HTTPS-adress med ngrok](#fast-https-adress-med-ngrok).
-- **KOPPLA SERVERN TILL PLAYIT.GG**: öppna en länk och godkänn servern, se
-  [Spela med kompisar hemifrån](#spela-med-kompisar-hemifrån).
+- **Select server language**: choose **English** or **Swedish** with the
+  arrow keys and press Enter. That is the language of the server's Terminal
+  window, see [Language](#language).
+- **NAME YOUR SERVER**: type a name for the server and press Enter (or
+  just Enter to keep *Emergency Meeting*). The name shows up as the region in
+  Among Us and on the join page. It can be changed later with
+  `/changeservername`, see [Commands](#commands).
+- **FIXED HTTPS ADDRESS WITH NGROK**: paste a key from ngrok, see
+  [Fixed HTTPS address with ngrok](#fixed-https-address-with-ngrok).
+- **CONNECT THE SERVER TO PLAYIT.GG**: open a link and approve the server, see
+  [Play with friends from home](#play-with-friends-from-home).
 
-Efter 10–30 sekunder skriver servern ut **HTTPS ÄR KLART!** och en adress,
-till exempel:
+After 10–30 seconds the server prints **HTTPS IS READY!** and an address,
+for example:
 
 ```
-https://glad-pingvin-1234.ngrok-free.dev
+https://happy-penguin-1234.ngrok-free.dev
 ```
 
-Med ngrok är adressen samma varje gång. Utan ngrok blir det en
-Cloudflare-adress (`...trycloudflare.com`) som byts vid varje start.
+With ngrok the address is the same every time. Without ngrok it becomes a
+Cloudflare address (`...trycloudflare.com`) that changes every start.
 
-När allt är klart kommer rutan **SERVER IS ONLINE!**. Då kan man gå med.
+When everything is ready, the box **SERVER IS ONLINE!** appears. Then you can
+join.
 
-Stäng av servern med **Ctrl+C** (eller skriv `/stop`).
+Stop the server with **Ctrl+C** (or type `/stop`).
 
-### Uppdatera till en ny version
+### Updating to a new version
 
-Ladda ner koden som ZIP igen och flytta över de här från den gamla mappen,
-så slipper ni göra om sådant som bara behövs första gången:
+Download the code as a ZIP again and move these from the old folder, so
+that you don't have to redo the things that are only needed the first time:
 
-- `config.json` (inställningarna och serverns namn)
-- `playit-nyckel.txt`, `ngrok-nyckel.txt` och `ngrok-adress.txt`
-- `cloudflared` och mappen `plugins`
+- `config.json` (the settings, the server's name and language)
+- `playit-key.txt`, `ngrok-key.txt` and `ngrok-address.txt`
+- `cloudflared` and the `plugins` folder
 
-## Kommandon
+> Coming from 0.12.0 or older? Those files had Swedish names then
+> (`playit-nyckel.txt`, `ngrok-nyckel.txt`, `ngrok-adress.txt` and the
+> `loggar` folder). Just move them over as they are, the server gives them
+> their new names by itself.
 
-Medan servern kör kan man skriva kommandon i Terminal-fönstret och trycka
-Enter:
+## Language
 
-| Kommando | Vad det gör |
-|----------|-------------|
-| `/help` | Visar alla kommandon |
-| `/changeservername <namn>` | Byter serverns namn, t.ex. `/changeservername Blobis server` |
-| `/games` | Visar spelen på servern med spelkod, antal spelare och karta |
-| `/address` | Visar startsidans adress och QR-koden igen |
-| `/say <meddelande>` | Skickar ett chattmeddelande till alla i alla spel |
-| `/stop` | Stänger av servern (samma som Ctrl+C) |
+Everything in Emergency Meeting is in English: the code, the join page, the
+files and the chat messages in the game. Only the server's **Terminal window**
+(the one `start.command` opens) can be in Swedish instead.
 
-När servern byter namn ändras regionen i `regionInfo.json`, i knappen på
-startsidan och i rubriken direkt. Den som redan har lagt till servern ser
-det gamla namnet i Among Us tills den lägger till servern igen från
-startsidan. Det går att spela ändå, adressen är densamma.
+The language is chosen the first time the server starts. Change it with
+`/language English` or `/language Swedish` while the server is running, or
+with `"language"` in `config.json`. The change is saved in `config.json`.
 
-### 5. Testa utan spelet (valfritt)
+The translations are in `server/locales/sv.json`. Run
+`python3 tools/check_translations.py` to find text that has no translation
+yet. Plugins can bring their own translations, see
+[plugins/README.md](plugins/README.md).
 
-Låt servern vara igång och dubbelklicka på **`testa.command`**. Testklienten
-låtsas vara två Among Us-spelare: den ena skapar ett spel, den andra går med
-med spelkoden. Om allt fungerar skriver den `Allt fungerar!`.
+## Commands
 
-## Ansluta med Among Us
+While the server is running you can type commands in the Terminal window and
+press Enter:
 
-Med playit.gg (se nästa del) kan den som spelar vara var som helst. Utan
-playit.gg måste enheten vara på **samma wifi** som Macen.
+| Command | What it does |
+|---------|--------------|
+| `/help` | Shows all commands |
+| `/changeservername <name>` | Changes the server's name, for example `/changeservername Blobi's server` |
+| `/games` | Shows the games on the server with game code, number of players and map |
+| `/address` | Shows the join page's address and the QR code again |
+| `/say <message>` | Sends a chat message to everyone in all games |
+| `/language <English\|Swedish>` | Changes the language in the Terminal window |
+| `/stop` | Stops the server (the same as Ctrl+C) |
 
-1. Öppna HTTPS-adressen som servern skrev ut i en webbläsare på enheten
-   som ska spela, eller skanna QR-koden i Terminal-fönstret med
-   mobilkameran.
-2. Sidan visar stegen för just den enheten (iPhone/iPad, Android, PC eller
-   Mac). På telefoner räcker det att trycka på den röda knappen **Lägg till i
-   Among Us**. På PC laddar man ner `regionInfo.json`, och sidan har en knapp
-   som kopierar adressen till mappen där filen ska ligga.
-3. Starta om Among Us helt, välj servern **Emergency Meeting** och tryck på
-   **Create Game**, eller **Enter Code** och skriv in en kod.
+When the server changes its name, the region in `regionInfo.json`, the button
+on the join page and the heading change right away. Those who have already
+added the server see the old name in Among Us until they add the server
+again from the join page. You can play anyway, the address is the same.
 
-### Startsidan
+### 5. Test without the game (optional)
 
-Startsidan har tre delar:
+Leave the server running and double-click **`test.command`**. The test client
+pretends to be two Among Us players: one hosts a game, the other joins with
+the game code. If everything works it prints `Everything works!`.
 
-- **Lägg till servern**: stegen för enheten man använder. Fel enhet? Byt
-  med flikarna högst upp.
-- **Spela**: alla spel på servern med spelkod, värd, karta och antal
-  spelare. Listan uppdateras av sig själv. **Kopiera kod** lägger koden i
-  urklipp.
-- **Bjud in kompisar**: en QR-kod och ett färdigt meddelande. Tryck **Bjud in
-  till spelet** vid ett spel, så kommer koden med i meddelandet. Kopiera det
-  eller tryck **Dela** (på telefonen) och skicka det i en chatt.
+## Connecting with Among Us
 
-Öppnar man `http://localhost:22023` på Macen visas adressen som kompisarna
-ska använda, med en stor QR-kod, spelen och meddelandet.
+With playit.gg (see the next part) the player can be anywhere. Without
+playit.gg the device must be on the **same wifi** as the Mac.
 
-Med ngrok behöver man bara göra steg 1–2 en gång. Med en Cloudflare-adress
-byts adressen vid varje omstart, och då måste man göra om steg 1–2.
+1. Open the HTTPS address the server printed in a browser on the device
+   that will play, or scan the QR code in the Terminal window with the
+   phone camera.
+2. The page shows the steps for that device (iPhone/iPad, Android, PC or
+   Mac). On phones it's enough to tap the button **Add to Among Us**. On a
+   PC you download `regionInfo.json`, and the page has a button that copies
+   the address of the folder where the file should go.
+3. Restart Among Us completely, choose the server **Emergency Meeting** and
+   tap **Create Game**, or **Enter Code** and type in a code.
 
-## Fast HTTPS-adress med ngrok
+### The join page
 
-**ngrok** (gratis) ger servern en HTTPS-adress som är samma varje gång, till
-exempel `https://glad-pingvin-1234.ngrok-free.dev`. Då behöver kompisar bara
-lägga till servern i Among Us en gång.
+The join page has three parts:
 
-### Första gången (bara värden)
+- **Add the server**: the steps for the device you use. Wrong device? Switch
+  with the tabs at the top.
+- **Play**: all games on the server with game code, host, map and number of
+  players. The list updates by itself. **Copy code** puts the code on the
+  clipboard.
+- **Invite friends**: a QR code and a ready-made message. Tap **Invite to this
+  game** next to a game, and the code is included in the message. Copy it
+  or tap **Share** (on the phone) and send it in a chat.
 
-1. Starta servern. Den visar rutan **FAST HTTPS-ADRESS MED NGROK**.
-2. Skapa ett gratiskonto på <https://dashboard.ngrok.com/signup> (eller logga
+If you open `http://localhost:22023` on the Mac, it shows the address the
+friends should use, with a big QR code, the games and the message.
+
+With ngrok you only have to do steps 1–2 once. With a Cloudflare address
+the address changes every restart, and then you have to redo steps 1–2.
+
+## Fixed HTTPS address with ngrok
+
+**ngrok** (free) gives the server an HTTPS address that is the same every
+time, for example `https://happy-penguin-1234.ngrok-free.dev`. Then friends
+only have to add the server to Among Us once.
+
+### The first time (only the host)
+
+1. Start the server. It shows the box **FIXED HTTPS ADDRESS WITH NGROK**.
+2. Create a free account at <https://dashboard.ngrok.com/signup> (or log
    in).
-3. Öppna <https://dashboard.ngrok.com/get-started/your-authtoken> och kopiera
-   din **Authtoken**.
-4. Klicka i terminalfönstret, klistra in nyckeln (Cmd+V) och tryck **Enter**.
-   Nyckeln syns inte när du klistrar in den, eftersom den är hemlig. Det gör
-   inget om det kommer andra rader i fönstret under tiden.
-5. Servern hämtar själv programmet ngrok och skriver sedan **HTTPS ÄR KLART!**
-   med den nya adressen.
+3. Open <https://dashboard.ngrok.com/get-started/your-authtoken> and copy
+   your **Authtoken**.
+4. Click in the Terminal window, paste the key (Cmd+V) and press **Enter**.
+   The key doesn't show when you paste it, because it's secret. It doesn't
+   matter if other lines show up in the window meanwhile.
+5. The server downloads the program ngrok by itself and then prints
+   **HTTPS IS READY!** with the new address.
 
-Nyckeln sparas i `ngrok-nyckel.txt` och adressen i `ngrok-adress.txt`. Dela
-inte nyckeln med någon (filen är redan undantagen i `.gitignore`).
+The key is saved in `ngrok-key.txt` and the address in `ngrok-address.txt`.
+Don't share the key with anyone (the file is already excluded in
+`.gitignore`).
 
-Tills nyckeln är inklistrad används Cloudflare, så servern fungerar ändå.
-Tryck bara Enter om ni vill hoppa över ngrok den gången.
+Until the key is pasted, Cloudflare is used, so the server works anyway.
+Just press Enter if you want to skip ngrok that time.
 
-### Bra att veta
+### Good to know
 
-- Första gången man öppnar adressen i en webbläsare visar ngrok en
-  varningssida. Tryck **Visit Site**. Spelet själv får ingen varningssida.
-- Om ngrok inte kommer igång inom 40 sekunder tar servern Cloudflare i
-  stället. Det står i rutan **HTTPS ÄR KLART!** vilken adress som gäller.
-- Gratiskontot räcker gott: ngrok tillåter 20 000 anrop i månaden, och en
-  spelare som går med gör bara ett fåtal.
-- Har nyckeln synts för någon annan, till exempel i en skärmdump eller en
-  kopierad logg: skapa en ny på
+- The first time you open the address in a browser, ngrok shows a warning
+  page. Tap **Visit Site**. The game itself gets no warning page.
+- If ngrok doesn't get going within 40 seconds, the server uses Cloudflare
+  instead. The box **HTTPS IS READY!** says which address to use.
+- The free account is plenty: ngrok allows 20,000 requests a month, and a
+  player who joins only makes a few.
+- If someone else has seen the key, for example in a screenshot or a copied
+  log: create a new one at
   <https://dashboard.ngrok.com/get-started/your-authtoken> (**Reset
-  Authtoken**). Nästa gång servern startar säger den att nyckeln inte
-  fungerar och ber om den nya.
-- Vill ni bara använda Cloudflare: sätt `"ngrok": false` i `config.json`.
+  Authtoken**). The next time the server starts it says that the key doesn't
+  work and asks for the new one.
+- If you only want to use Cloudflare: set `"ngrok": false` in `config.json`.
 
-## Spela med kompisar hemifrån
+## Play with friends from home
 
-Servern använder **playit.gg** (gratis) för att kompisar ska kunna spela med
-er från sina egna hem, på wifi eller mobildata. Ingenting behöver ändras i
-routern. Spelet får en fast adress hos playit.gg som är samma varje gång.
+The server uses **playit.gg** (free) so that friends can play with you from
+their own homes, on wifi or mobile data. Nothing needs to be changed in the
+router. The game gets a fixed address at playit.gg that is the same every
+time.
 
-### Första gången (bara värden)
+### The first time (only the host)
 
-1. Starta servern. Den visar rutan **KOPPLA SERVERN TILL PLAYIT.GG** med en
-   länk, till exempel `https://playit.gg/claim/3fa91c0d2e`.
-2. Öppna länken i en webbläsare. Logga in, eller skapa ett gratiskonto, och
-   godkänn servern.
-3. Servern skapar sedan själv en tunnel hos playit.gg. Om det inte går visar
-   den rutan **SKAPA EN TUNNEL PÅ PLAYIT.GG** med vad man ska klicka på
-   playit.gg. Servern märker själv när tunneln är klar.
-4. När rutan **PLAYIT ÄR KLART!** syns är allt klart.
+1. Start the server. It shows the box **CONNECT THE SERVER TO PLAYIT.GG** with
+   a link, for example `https://playit.gg/claim/3fa91c0d2e`.
+2. Open the link in a browser. Log in, or create a free account, and
+   approve the server.
+3. The server then creates a tunnel at playit.gg by itself. If that doesn't
+   work, it shows the box **CREATE A TUNNEL ON PLAYIT.GG** with what to click
+   on playit.gg. The server notices by itself when the tunnel is ready.
+4. When the box **PLAYIT IS READY!** shows up, everything is ready.
 
-Servern sparar en hemlig nyckel i `playit-nyckel.txt`. Därefter går allt av
-sig självt varje gång servern startar. Dela inte filen med någon, och lägg
-inte upp den på GitHub (den är redan undantagen i `.gitignore`).
+The server saves a secret key in `playit-key.txt`. After that everything
+happens by itself every time the server starts. Don't share the file with
+anyone, and don't put it on GitHub (it's already excluded in `.gitignore`).
 
-### Så går kompisar med
+### How friends join
 
-Precis som på wifi: de öppnar HTTPS-adressen som servern skrev ut, trycker
-**Lägg till i Among Us**, startar om spelet, väljer **Emergency Meeting** och
-skriver in spelkoden. Skicka adressen till dem i en chatt.
+Just like on wifi: they open the HTTPS address the server printed, tap
+**Add to Among Us**, restart the game, choose **Emergency Meeting** and type
+in the game code. Send them the address in a chat.
 
-Med ngrok gör de det bara en gång. Nästa gång väljer de bara **Emergency
-Meeting** i spelet och skriver in spelkoden.
+With ngrok they only do that once. The next time they just choose
+**Emergency Meeting** in the game and type in the game code.
 
-Telefoner behöver inte längre tillståndet "Lokalt nätverk", eftersom spelet
-går via internet i stället för direkt till Macen.
+Phones no longer need the "Local Network" permission, because the game goes
+through the internet instead of directly to the Mac.
 
-### Om något strular
+### If something goes wrong
 
-- **PLAYIT.GG KÄNNER INTE IGEN SERVERN**: nyckeln fungerar inte längre (till
-  exempel om servern togs bort på playit.gg). Ta bort `playit-nyckel.txt` och
-  starta om servern, så kommer en ny länk.
-- **"playit.gg finns inte här"** i loggen: filen `playit/playitd-macos`
-  saknas. Ladda ner koden som ZIP igen, eller dubbelklicka på
-  `bygg-playit.command` (se [playit/README.md](playit/README.md)).
-- Vill ni bara spela på ert wifi: sätt `"playit": false` i `config.json`.
+- **PLAYIT.GG DOESN'T RECOGNIZE THE SERVER**: the key doesn't work anymore
+  (for example if the server was removed on playit.gg). Delete
+  `playit-key.txt` and restart the server, and a new link comes up.
+- **"playit.gg isn't here"** in the log: the file `playit/playitd-macos` is
+  missing. Download the code as a ZIP again, or double-click
+  `build-playit.command` (see [playit/README.md](playit/README.md)).
+- If you only want to play on your wifi: set `"playit": false` in `config.json`.
 
-## Vad loggen visar
+## What the log shows
 
-Servern skriver ut vad som händer, till exempel:
+The server prints what happens, for example:
 
 ```
-15:01:12  spel    Blobi skapade spelet NUORZH (The Skeld, Vanligt, max 10 spelare, 1 impostor)
-15:01:12  spel    Blobi gick med i NUORZH som värd (1/10 spelare)
-15:02:40  spel    NUORZH: Blobi har färgen Lime
-15:03:05  spel    NUORZH: Blobi ändrade Kill Cooldown: 30 s -> 25 s
-15:03:30  spel    Kalle gick med i NUORZH som spelare (2/10 spelare)
-15:03:41  spel    NUORZH chatt  Kalle: hej!
-15:05:02  spel    NUORZH: spelet startar! (4 spelare, The Skeld)
-15:05:31  bot     Bot_1 gjorde ett uppdrag (Fix Wiring) (1/4)
-15:06:10  spel    NUORZH: Bot_2 har dödats! (1 döda)
-15:06:30  spel    NUORZH: MÖTE! Blobi hittade Bot_2
-15:07:05  spel    NUORZH: Bot_1 röstades ut
-15:07:20  spel    NUORZH: RUNDAN ÄR SLUT. Besättningen vann genom att rösta ut impostorerna
-15:07:20  spel    NUORZH:   Impostors: Bot_1
-15:07:20  spel    NUORZH:   Bot_2 dödades av Bot_1
+15:01:12  game    Blobi created the game NUORZH (The Skeld, Normal, max 10 players, 1 impostor)
+15:01:12  game    Blobi joined NUORZH as host (1/10 players)
+15:02:40  game    NUORZH: Blobi has the color Lime
+15:03:05  game    NUORZH: Blobi changed Kill Cooldown: 30 s -> 25 s
+15:03:30  game    Kalle joined NUORZH as player (2/10 players)
+15:03:41  game    NUORZH chat  Kalle: hi!
+15:05:02  game    NUORZH: the game is starting! (4 players, The Skeld)
+15:05:31  bot     Bot_1 did a task (Fix Wiring) (1/4)
+15:06:10  game    NUORZH: Bot_2 has been killed! (1 dead)
+15:06:30  game    NUORZH: MEETING! Blobi found Bot_2
+15:07:05  game    NUORZH: Bot_1 was voted out
+15:07:20  game    NUORZH: THE ROUND IS OVER. The crew won by voting out the impostors
+15:07:20  game    NUORZH:   Impostors: Bot_1
+15:07:20  game    NUORZH:   Bot_2 was killed by Bot_1
 ```
 
-Under rundan skriver loggen inte ut vem som dödade någon eller vilka som är
-impostors, så att den som tittar på serverfönstret inte får veta det. Det
-kommer först i sammanfattningen när rundan är slut.
+During the round the log doesn't say who killed someone or who the impostors
+are, so that whoever watches the server window doesn't find out. That only
+comes in the summary when the round is over.
 
-Loggen har färger: rutornas rubriker är röda och varje sorts rad har sin
-färg (servern och spelen orange, playit.gg gult, ngrok blått, HTTP grönt,
-bots turkost och plugins lila). Varningar är gula och fel röda. Färgerna
-följer om Macen har mörkt eller ljust läge. Vill man ha andra eller inga
-färger finns `color_theme` och `colors` i `config.json`.
+The log has colors: the boxes' titles are red and every kind of line has its
+own color (the server and the games orange, playit.gg yellow, ngrok blue,
+HTTP green, bots turquoise and plugins purple). Warnings are yellow and
+errors red. The colors follow whether the Mac is in dark or light mode. If
+you want other colors or none, there are `color_theme` and `colors` in
+`config.json`.
 
-## Dödande
+## Killing
 
-I Among Us är det servern, inte värden, som bestämmer om en impostor får
-döda. Spelet frågar servern ("CheckMurder"), servern kontrollerar att
-mördaren är en levande impostor, att offret lever och inte är impostor och
-att det inte pågår ett möte, och skickar sedan "MurderPlayer" till alla.
-Om en Guardian Angel har skyddat offret misslyckas mordet. Servern sköter
-också Phantoms "bli osynlig" och "synas igen" på samma sätt.
+In Among Us it's the server, not the host, that decides if an impostor may
+kill. The game asks the server ("CheckMurder"), the server checks that the
+killer is a living impostor, that the victim is alive and isn't an impostor
+and that no meeting is going on, and then sends "MurderPlayer" to everyone.
+If a Guardian Angel has protected the victim, the kill fails. The server
+also handles the Phantom's "vanish" and "appear" the same way.
 
-## Bots som går
+## Bots that walk
 
-Bots (från botpluginet) går runt i lobbyn och på kartan. Under en runda går
-de till sina uppdrag, står vid konsolen en stund och gör uppdraget. När
-allt är klart vandrar de mellan rummen. På möten står de vid bordet och
-röstar skip när diskussionstiden är slut.
+Bots (from the bot plugin) walk around in the lobby and on the map. During a
+round they walk to their tasks, stand at the console for a while and do the
+task. When everything is done they wander between the rooms. In meetings
+they stand at the table and vote skip when the discussion time is over.
 
-Kartorna finns i `server/kartdata/`: väggarna, var uppdragen görs och var
-spelarna börjar. Servern delar kartan i små rutor och letar upp en väg runt
-väggarna (se `server/navigation.py`). The Skeld, MIRA HQ, Polus, dlekS ehT
-och The Airship har riktiga väggar. På The Fungle finns bara en del av
-väggarna med, så där kan en bot ibland gå igenom ett träd eller en sten.
-På The Airship kan bots inte klättra på stegar eller åka plattformen, så de
-gör uppdragen som de kan gå till.
+The maps are in `server/mapdata/`: the walls, where the tasks are done and
+where the players start. The server splits the map into small cells and finds
+a path around the walls (see `server/navigation.py`). The Skeld, MIRA HQ,
+Polus, dlekS ehT and The Airship have real walls. On The Fungle only some of
+the walls are included, so there a bot can sometimes walk through a tree or a
+rock. On The Airship bots can't climb ladders or ride the platform, so they do
+the tasks they can walk to.
 
-Inställningarna har samma namn som i spelets meny. Om spelet får en ny
-inställning som servern inte känner till står det "Övriga inställningar".
+The settings have the same names as in the game's menu. If the game gets a
+new setting that the server doesn't know about, it says "Other settings".
 
 ## Plugins
 
-Mappen `plugins/` är till för plugins som servern laddar när den startar.
-Ett plugin är en Python-fil som kan reagera på saker som händer (någon går
-med, skriver i chatten, ändrar inställningar...) och själv skicka
-chattmeddelanden eller lägga till bots.
+The `plugins/` folder is for plugins that the server loads when it starts.
+A plugin is a Python file that can react to things that happen (someone
+joins, writes in the chat, changes settings...) and send chat messages or
+add bots itself.
 
-Färdiga plugins finns i
+Ready-made plugins are in
 [Common Emergency Meeting Plugins (CEMP)](https://github.com/xxMrMag1cxx/Common-Emergency-Meeting-Plugins).
-Ladda ner det repot som ZIP, packa upp det och lägg hela mappen i
-`plugins/`. Starta sedan om servern.
+Download that repo as a ZIP, unpack it and put the whole folder in
+`plugins/`. Then restart the server.
 
-Hur man skriver egna plugins står i [plugins/README.md](plugins/README.md).
+How to write your own plugins is in [plugins/README.md](plugins/README.md).
 
-## Serverns inställningar
+## The server's settings
 
-Serverns egna inställningar finns i `config.json`. Filen skapas första
-gången servern startar. Ändra i den med TextEdit när servern är avstängd.
+The server's own settings are in `config.json`. The file is created the first
+time the server starts. Change it with TextEdit when the server is off.
 
-| Inställning        | Vad den gör |
-|--------------------|-------------|
-| `server_name`      | Serverns namn (frågas första gången, byt med `/changeservername`) |
-| `listen_ip`        | `0.0.0.0` = lyssna på alla nätverk. Behöver sällan ändras |
-| `port`             | Port för både HTTP och spel. Among Us använder `22023` |
-| `public_ip`        | `auto` = Macens adress i hemnätverket. Kan sättas till en egen adress |
-| `https_tunnel`     | `true` = starta en HTTPS-tunnel (ngrok, annars cloudflared) |
-| `ngrok`            | `true` = använd ngrok, så att HTTPS-adressen är samma varje gång |
-| `ngrok_path`       | `auto` = leta efter ngrok själv (mappen `ngrok/` först) och hämta det om det saknas |
-| `cloudflared_path` | `auto` = leta efter cloudflared själv (projektmappen först) |
-| `playit`           | `true` = gör spelet nåbart hemifrån med playit.gg |
-| `playit_path`      | `auto` = leta efter playitd själv (mappen `playit/` först) |
-| `plugins`          | `true` = ladda plugins från mappen `plugins/` |
-| `page_shows_games` | `true` = visa spelen och deras koder på startsidan |
-| `terminal_qr`      | `true` = visa HTTPS-adressen som QR-kod i Terminal-fönstret |
-| `colors`           | `true` = färger i Terminal-fönstret |
-| `color_theme`      | `auto` = följ Macens mörka/ljusa läge, `dark` = för svart bakgrund, `light` = för vit bakgrund |
-| `debug`            | `true` = visa varje paket i loggen, bra vid felsökning |
+| Setting            | What it does |
+|--------------------|--------------|
+| `server_name`      | The server's name (asked the first time, change it with `/changeservername`) |
+| `language`         | The language in the Terminal window: `English` or `Swedish` (asked the first time, change it with `/language`) |
+| `listen_ip`        | `0.0.0.0` = listen on all networks. Rarely needs to be changed |
+| `port`             | Port for both HTTP and the game. Among Us uses `22023` |
+| `public_ip`        | `auto` = the Mac's address on the home network. Can be set to your own address |
+| `https_tunnel`     | `true` = start an HTTPS tunnel (ngrok, otherwise cloudflared) |
+| `ngrok`            | `true` = use ngrok, so that the HTTPS address is the same every time |
+| `ngrok_path`       | `auto` = look for ngrok by itself (the `ngrok/` folder first) and download it if it's missing |
+| `cloudflared_path` | `auto` = look for cloudflared by itself (the project folder first) |
+| `playit`           | `true` = make the game reachable from home with playit.gg |
+| `playit_path`      | `auto` = look for playitd by itself (the `playit/` folder first) |
+| `plugins`          | `true` = load plugins from the `plugins/` folder |
+| `page_shows_games` | `true` = show the games and their codes on the join page |
+| `terminal_qr`      | `true` = show the HTTPS address as a QR code in the Terminal window |
+| `colors`           | `true` = colors in the Terminal window |
+| `color_theme`      | `auto` = follow the Mac's dark/light mode, `dark` = for a black background, `light` = for a white background |
+| `debug`            | `true` = show every packet in the log, good for troubleshooting |
 
-## Så här är koden uppbyggd
+## How the code is organized
 
 ```
 server/
-  __main__.py    startar allt
-  config.py      läser och sparar config.json
-  terminal.py    färger, rutor, servernamnet och kommandona (/help)
-  matchmaker.py  HTTP-delen: spelet frågar var servern finns
-  ngrok.py       startar ngrok: HTTPS-adress som är samma varje gång
-  tunnel.py      startar cloudflared (reserv): HTTPS-adress som byts varje gång
-  playit.py      startar playitd och håller koll på playit.gg-tunneln
-  webpage.py     startsidan: lägga till servern, spelkoder, inbjudan
-  qrkod.py       QR-koder (för terminalen och startsidan)
-  region.py      bygger regionInfo.json och amongus://-länken
-  hazel.py       nätverkslagret: kvitton, ping och omsändning av paket
-  handshake.py   läser spelets första paket (namn, version, plattform)
-  game.py        spellogiken: skapa spel, gå med, skicka vidare speldata
-  lobby.py       en lobby: spelkod, spelare, värd och spelarinfo
-  options.py     läser spelinställningarna och visar vad som ändrats
-  plugins.py     laddar plugins och anropar dem när något händer
-  bots.py        bots: låtsasspelare som servern styr
-  navigation.py  hittar vägar runt väggarna åt bots
-  kartdata/      kartorna: väggar, uppdrag, rum och startplatser
-  blackbox.py    "svart låda": sparar vad som hände om någon kopplas från
-  gamecode.py    spelkoder ("ABCDEF") och talen spelet skickar
-  messages.py    läsa och skriva bytes
-  protocol.py    alla siffror och namn som Among Us använder
-plugins/         plugins som servern laddar (se plugins/README.md)
-playit/          playitd, playit.gg:s tunnelprogram (se playit/README.md)
+  __main__.py    starts everything
+  config.py      reads and saves config.json
+  terminal.py    colors, boxes, the language menu, the server name and the commands (/help)
+  i18n.py        translations for the Terminal window
+  locales/       the translations (sv.json = Swedish)
+  matchmaker.py  the HTTP part: the game asks where the server is
+  ngrok.py       starts ngrok: an HTTPS address that is the same every time
+  tunnel.py      starts cloudflared (backup): an HTTPS address that changes every time
+  playit.py      starts playitd and keeps an eye on the playit.gg tunnel
+  webpage.py     the join page: adding the server, game codes, invitation
+  qrcode.py      QR codes (for the terminal and the join page)
+  region.py      builds regionInfo.json and the amongus:// link
+  hazel.py       the network layer: acks, pings and resending packets
+  handshake.py   reads the game's first packet (name, version, platform)
+  game.py        the game logic: hosting, joining, passing on game data
+  lobby.py       a lobby: game code, players, host and player info
+  options.py     reads the game settings and shows what changed
+  plugins.py     loads plugins and calls them when something happens
+  bots.py        bots: pretend players that the server controls
+  navigation.py  finds paths around the walls for bots
+  mapdata/       the maps: walls, tasks, rooms and start places
+  blackbox.py    "black box": saves what happened if someone is disconnected
+  gamecode.py    game codes ("ABCDEF") and the numbers the game sends
+  messages.py    reading and writing bytes
+  protocol.py    all numbers and names Among Us uses
+plugins/         plugins that the server loads (see plugins/README.md)
+playit/          playitd, playit.gg's tunnel program (see playit/README.md)
 tools/
-  testklient.py  två låtsas-Among Us som testar servern (skapa, gå med,
-                 byta färg, ändra inställningar, chatta, lämna)
-start.command               starta servern
-testa.command               kör testklienten
-hamta-cloudflared.command   hämtar cloudflared
-bygg-playit.command         bygger playitd på Macen (behövs sällan)
-.github/workflows/          GitHub bygger playitd för Mac
+  testclient.py         two pretend Among Us games that test the server (host,
+                        join, change color, change settings, chat, leave)
+  check_translations.py finds text in the Terminal window that has no translation
+start.command               starts the server
+test.command                runs the test client
+get-cloudflared.command     downloads cloudflared
+build-playit.command        builds playitd on the Mac (rarely needed)
+.github/workflows/          GitHub builds playitd for Mac
 ```
 
-Så här går en anslutning till:
+This is how a connection works:
 
 ```
-Among Us --HTTPS--> ngrok -------tunnel--> ngrok -------HTTP---> servern (TCP 22023)
-Among Us --UDP----> playit.gg ---tunnel--> playitd -----UDP----> servern (UDP 22023)
+Among Us --HTTPS--> ngrok -------tunnel--> ngrok -------HTTP---> the server (TCP 22023)
+Among Us --UDP----> playit.gg ---tunnel--> playitd -----UDP----> the server (UDP 22023)
 ```
 
-Om ngrok inte fungerar går HTTPS i stället via Cloudflare (programmet
-cloudflared). Utan playit.gg (eller om spelet frågar servern direkt, utan
-HTTPS) går UDP direkt från spelet till Macen på ert wifi.
+If ngrok doesn't work, HTTPS goes through Cloudflare instead (the program
+cloudflared). Without playit.gg (or if the game asks the server directly,
+without HTTPS) UDP goes directly from the game to the Mac on your wifi.
 
-1. Spelet frågar servern via **HTTPS**: "Får jag en token?" och "Var ska jag
-   skapa spelet?". Servern svarar med playit.gg-adressen (eller Macens
-   adress i hemnätverket om playit.gg inte används).
-2. Spelet skickar ett **Hello**-paket direkt till Macen via **UDP** med namn
-   och version.
-3. Spelet skickar **HostGame** ("skapa spel") med inställningarna. Servern
-   skapar en lobby och svarar med spelkoden.
-4. Spelet skickar **JoinGame** med koden. Servern svarar **JoinedGame**, och den
-   första som går med blir värd.
-5. Spelet laddar lobbyn. Servern skapar ett **spelarinfo**-objekt för spelaren
-   (där spelet sparar namn, färg och hatt).
-6. Därefter skickar värden **GameData** hela tiden (rörelser, färgbyten,
-   chatt...). Servern skickar vidare allt till de andra i lobbyn.
+1. The game asks the server over **HTTPS**: "Can I have a token?" and "Where
+   should I host the game?". The server answers with the playit.gg address
+   (or the Mac's address on the home network if playit.gg isn't used).
+2. The game sends a **Hello** packet directly to the Mac over **UDP** with its
+   name and version.
+3. The game sends **HostGame** with the settings. The server creates a lobby
+   and answers with the game code.
+4. The game sends **JoinGame** with the code. The server answers
+   **JoinedGame**, and the first one to join becomes the host.
+5. The game loads the lobby. The server creates a **player info** object for
+   the player (where the game saves name, color and hat).
+6. After that the host sends **GameData** all the time (movements, color
+   changes, chat...). The server passes it all on to the others in the lobby.
 
-Det mesta av spellogiken körs alltså hos värden. Servern är mest en brevbärare
-som håller koll på vem som är med i vilket spel.
+So most of the game logic runs at the host. The server is mostly a mail
+carrier that keeps track of who is in which game.
 
-## Felsökning
+## Troubleshooting
 
-- **Svart skärm och inget händer i serverfönstret**: spelet når inte servern.
-  Kolla att ni använder HTTPS-adressen från *senaste* starten av servern.
-  Med ngrok är adressen samma varje gång, men om rutan **HTTPS ÄR KLART!**
-  visar en `trycloudflare.com`-adress har servern tagit Cloudflare i stället.
-- **NGROK KÄNNER INTE IGEN NYCKELN**: klistra in en ny nyckel från
-  <https://dashboard.ngrok.com/get-started/your-authtoken> i terminalfönstret.
-- **NGROK ANVÄNDS REDAN**: ngrok-kontot används av en annan dator eller ett
-  annat program. Stäng det och starta om servern.
-- **"försökte ansluta med HTTPS direkt till port 22023"** i loggen: spelet är
-  inställt på Macens IP-adress i stället för HTTPS-adressen. Lägg till servern
-  igen via HTTPS-adressen.
-- **"nådde servern via HTTPS men anslöt aldrig till spelet via UDP"** i loggen:
-  enheten kommer åt servern via internet men inte själva spelet. Kolla att
-  rutan **PLAYIT ÄR KLART!** har visats. Utan playit.gg måste enheten vara på
-  samma wifi, och på iPhone: Inställningar → Integritet och säkerhet → Lokalt
-  nätverk → slå på Among Us.
-- **Token hämtas men inget mer händer**: spelet når HTTPS-delen men inte UDP.
-  Kolla att enheten är på samma wifi och att brandväggen tillåter Python
-  (Systeminställningar → Säkerhet och integritet → Brandvägg).
-- **Spelet fastnar efter Create Game** eller lobbyn ser konstig ut: sätt
-  `"debug": true` i `config.json`, prova igen och spara loggen. Den visar
-  exakt vad spelet och servern skickar till varandra.
-- **"Address already in use"**: servern körs redan i ett annat fönster. Stäng det.
-- **Spelet säger fel version**: skriv ner vilken version spelet har (står uppe
-  till vänster i huvudmenyn) och vad loggen visar.
-- **Någon kopplas från oväntat**: varje gång en spelare i ett spel kopplas
-  från sparas en rapport i mappen `loggar/` med de senaste meddelandena
-  mellan spelet och servern. Skicka den filen, så går det att se vad som
-  hände precis innan.
-- Sätt `"debug": true` i `config.json` för att se allt som skickas.
+- **Black screen and nothing happens in the server window**: the game doesn't
+  reach the server. Check that you use the HTTPS address from the *latest*
+  start of the server. With ngrok the address is the same every time, but if
+  the box **HTTPS IS READY!** shows a `trycloudflare.com` address, the server
+  has used Cloudflare instead.
+- **NGROK DOESN'T RECOGNIZE THE KEY**: paste a new key from
+  <https://dashboard.ngrok.com/get-started/your-authtoken> in the Terminal window.
+- **NGROK IS ALREADY IN USE**: the ngrok account is used by another computer
+  or program. Close it and restart the server.
+- **"tried to connect with HTTPS directly to port 22023"** in the log: the game
+  is set to the Mac's IP address instead of the HTTPS address. Add the server
+  again through the HTTPS address.
+- **"reached the server over HTTPS but never connected to the game over UDP"**
+  in the log: the device reaches the server over the internet but not the game
+  itself. Check that the box **PLAYIT IS READY!** has been shown. Without
+  playit.gg the device must be on the same wifi, and on an iPhone: Settings →
+  Privacy & Security → Local Network → turn on Among Us.
+- **A token is fetched but nothing more happens**: the game reaches the HTTPS
+  part but not UDP. Check that the device is on the same wifi and that the
+  firewall allows Python (System Preferences → Security & Privacy → Firewall).
+- **The game gets stuck after Create Game** or the lobby looks strange: set
+  `"debug": true` in `config.json`, try again and save the log. It shows
+  exactly what the game and the server send to each other.
+- **"Address already in use"**: the server is already running in another
+  window. Close it.
+- **The game says wrong version**: write down which version the game has
+  (it's at the top left in the main menu) and what the log shows.
+- **Someone is disconnected unexpectedly**: every time a player in a game is
+  disconnected, a report is saved in the `logs/` folder with the latest
+  messages between the game and the server. Send that file, and it's
+  possible to see what happened just before.
+- Set `"debug": true` in `config.json` to see everything that is sent.
 
-## Tack
+## Thanks
 
-Protokollet är kartlagt med hjälp av det öppna projektet
-[Impostor](https://github.com/Impostor/Impostor), som vi använder som
-referens. Ingen kod är kopierad därifrån.
+The protocol was mapped with the help of the open project
+[Impostor](https://github.com/Impostor/Impostor), which we use as a
+reference. No code is copied from there.
 
-Kartdatan i `server/kartdata/` kommer från andra öppna projekt, se
-[server/kartdata/README.md](server/kartdata/README.md). De projekten har
-licensen GPL-3.0, och kartdatan har samma licens.
+The map data in `server/mapdata/` comes from other open projects, see
+[server/mapdata/README.md](server/mapdata/README.md). Those projects have
+the GPL-3.0 license, and the map data has the same license.

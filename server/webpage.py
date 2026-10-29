@@ -1,15 +1,15 @@
 """
-Startsidan som visas när man öppnar serverns adress i en webbläsare.
+The join page that is shown when you open the server's address in a browser.
 
-Sidan har tre steg:
-  1. Lägg till servern i Among Us (bara första gången). Sidan känner av om
-     man har iPhone/iPad, Android, PC eller Mac och visar rätt instruktioner.
-  2. Spela: en lista över spelen på servern med deras koder. Listan hämtas
-     från /spel.json och uppdateras av sig själv.
-  3. Bjud in kompisar: en QR-kod och ett färdigt meddelande att skicka.
+The page is always in English and has three steps:
+  1. Add the server to Among Us (only the first time). The page notices if
+     you have an iPhone/iPad, Android, PC or Mac and shows the right steps.
+  2. Play: a list of the games on the server with their codes. The list is
+     fetched from /games.json and updates by itself.
+  3. Invite friends: a QR code and a ready-made message to send.
 
-Öppnar man sidan på Macen (http://localhost:22023) visas i stället
-QR-koden och adressen som kompisarna ska använda.
+If you open the page on the Mac (http://localhost:22023) it shows the QR
+code and the address the friends should use instead.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from functools import lru_cache
 from html import escape
 from string import Template
 
-from .qrkod import QrKod
+from .qrcode import QrCode
 from .terminal import full_name
 from .region import app_link
 
@@ -28,12 +28,12 @@ PC_FOLDER = r"%USERPROFILE%\AppData\LocalLow\Innersloth\Among Us"
 
 @lru_cache(maxsize=8)
 def qr_svg(url: str) -> str:
-    return QrKod.skapa(url, "M").svg()
+    return QrCode.create(url, "M").svg()
 
 
 PAGE = Template(
     """<!doctype html>
-<html lang="sv">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -135,7 +135,7 @@ PAGE = Template(
 <main>
   <header>
     <h1>$heading_html</h1>
-    <p class="status">Servern är igång$status_extra</p>
+    <p class="status">The server is online$status_extra</p>
   </header>
 $content
   <footer>
@@ -153,9 +153,9 @@ $script
 ADD_SECTION = Template(
     """
   <section aria-labelledby="add-title">
-    <h2 id="add-title"><span class="num">1</span> Lägg till servern</h2>
-    <p class="sub">Behövs bara första gången.</p>
-    <div class="tabs" role="tablist" aria-label="Vilken enhet spelar du på?" hidden>
+    <h2 id="add-title"><span class="num">1</span> Add the server</h2>
+    <p class="sub">Only needed the first time.</p>
+    <div class="tabs" role="tablist" aria-label="Which device do you play on?" hidden>
       <button role="tab" data-dev="ios">iPhone / iPad</button>
       <button role="tab" data-dev="android">Android</button>
       <button role="tab" data-dev="pc">PC</button>
@@ -163,44 +163,44 @@ ADD_SECTION = Template(
     </div>
 
     <div class="dev" data-dev="ios">
-      <p class="js-only-title"><b>iPhone och iPad</b></p>
-      <a class="btn wide add" href="$app_link">Lägg till i Among Us</a>
+      <p class="js-only-title"><b>iPhone and iPad</b></p>
+      <a class="btn wide add" href="$app_link">Add to Among Us</a>
       <ol class="steps">
-        <li>Tryck på <b>Lägg till i Among Us</b>. Om telefonen frågar, välj <b>Öppna</b>.</li>
-        <li>Among Us öppnas och servern <b>$name</b> läggs till.</li>
+        <li>Tap <b>Add to Among Us</b>. If the phone asks, choose <b>Open</b>.</li>
+        <li>Among Us opens and the server <b>$name</b> is added.</li>
       </ol>
-      <p class="muted">Händer inget? Kolla att Among Us är installerat och tryck igen.</p>
+      <p class="muted">Nothing happens? Check that Among Us is installed and tap again.</p>
     </div>
 
     <div class="dev" data-dev="android">
       <p class="js-only-title"><b>Android</b></p>
-      <a class="btn wide add" href="$app_link">Lägg till i Among Us</a>
+      <a class="btn wide add" href="$app_link">Add to Among Us</a>
       <ol class="steps">
-        <li>Tryck på <b>Lägg till i Among Us</b>. Om telefonen frågar vilken app, välj <b>Among Us</b>.</li>
-        <li>Among Us öppnas och servern <b>$name</b> läggs till.</li>
+        <li>Tap <b>Add to Among Us</b>. If the phone asks which app, choose <b>Among Us</b>.</li>
+        <li>Among Us opens and the server <b>$name</b> is added.</li>
       </ol>
-      <p class="muted">Händer inget? Kolla att Among Us är installerat och tryck igen.</p>
+      <p class="muted">Nothing happens? Check that Among Us is installed and tap again.</p>
     </div>
 
     <div class="dev" data-dev="pc">
       <p class="js-only-title"><b>PC (Steam, Epic, Microsoft Store)</b></p>
       <ol class="steps">
-        <li><a class="btn wide" href="/regionInfo.json" download="regionInfo.json">Ladda ner regionInfo.json</a></li>
-        <li><button class="btn wide" type="button" data-copy="$pc_folder">Kopiera mappens adress</button></li>
-        <li>Tryck <kbd>Windows</kbd> + <kbd>R</kbd>, klistra in med <kbd>Ctrl</kbd> + <kbd>V</kbd> och tryck <kbd>Enter</kbd>. Spelets mapp öppnas.</li>
-        <li>Flytta <code>regionInfo.json</code> från mappen <b>Hämtade filer</b> till spelets mapp. Välj <b>Ersätt</b> om Windows frågar.</li>
+        <li><a class="btn wide" href="/regionInfo.json" download="regionInfo.json">Download regionInfo.json</a></li>
+        <li><button class="btn wide" type="button" data-copy="$pc_folder">Copy the folder address</button></li>
+        <li>Press <kbd>Windows</kbd> + <kbd>R</kbd>, paste with <kbd>Ctrl</kbd> + <kbd>V</kbd> and press <kbd>Enter</kbd>. The game's folder opens.</li>
+        <li>Move <code>regionInfo.json</code> from the <b>Downloads</b> folder to the game's folder. Choose <b>Replace</b> if Windows asks.</li>
       </ol>
-      <p class="muted">Heter filen <code>regionInfo (1).json</code>? Byt namn till <code>regionInfo.json</code> innan du flyttar den.</p>
+      <p class="muted">Is the file called <code>regionInfo (1).json</code>? Rename it to <code>regionInfo.json</code> before you move it.</p>
     </div>
 
     <div class="dev" data-dev="mac">
       <p class="js-only-title"><b>Mac</b></p>
-      <p>Among Us på Mac med Apple-chip (M1 eller nyare) fungerar som på iPhone:</p>
-      <a class="btn wide add" href="$app_link">Lägg till i Among Us</a>
-      <p class="muted">På Mac med Intel-processor finns inte Among Us, men den kan köra servern.</p>
+      <p>Among Us on a Mac with Apple silicon (M1 or newer) works like on an iPhone:</p>
+      <a class="btn wide add" href="$app_link">Add to Among Us</a>
+      <p class="muted">Among Us isn't available on Macs with an Intel processor, but they can run the server.</p>
     </div>
 
-    <p class="then">Starta sedan om Among Us helt. Servern finns under jordgloben i spelets meny.</p>
+    <p class="then">Then restart Among Us completely. The server is under the globe in the game's menu.</p>
   </section>
 """
 )
@@ -208,8 +208,8 @@ ADD_SECTION = Template(
 PLAY_SECTION = Template(
     """
   <section aria-labelledby="play-title">
-    <h2 id="play-title">$num Spela</h2>
-    <p>Välj <b>$name</b> under jordgloben i Among Us. Tryck <b>Create Game</b> för att bli värd, eller <b>Enter Code</b> och skriv in en kod härifrån.</p>
+    <h2 id="play-title">$num Play</h2>
+    <p>Choose <b>$name</b> under the globe in Among Us. Tap <b>Create Game</b> to be the host, or <b>Enter Code</b> and type in a code from here.</p>
     <ul id="games" aria-live="polite"></ul>
     <p class="empty" id="no-games">$empty_text</p>
   </section>
@@ -219,13 +219,13 @@ PLAY_SECTION = Template(
 INVITE_SECTION = Template(
     """
   <section aria-labelledby="invite-title">
-    <h2 id="invite-title">$num Bjud in kompisar</h2>
+    <h2 id="invite-title">$num Invite friends</h2>
     $qr_block
-    <label for="msg" class="muted">Meddelande att skicka</label>
+    <label for="msg" class="muted">Message to send</label>
     <textarea id="msg" spellcheck="false"></textarea>
     <div class="row">
-      <button class="btn" type="button" data-copy-from="msg">Kopiera meddelandet</button>
-      <button class="btn" type="button" id="share" hidden>Dela</button>
+      <button class="btn" type="button" data-copy-from="msg">Copy the message</button>
+      <button class="btn" type="button" id="share" hidden>Share</button>
     </div>
   </section>
 """
@@ -234,21 +234,21 @@ INVITE_SECTION = Template(
 HOST_SECTION = Template(
     """
   <section aria-labelledby="host-title">
-    <h2 id="host-title">Det här är Macens egen sida</h2>
-    <p>Among Us kräver HTTPS, så telefoner och datorer ska använda den här adressen:</p>
+    <h2 id="host-title">This is the Mac's own page</h2>
+    <p>Among Us requires HTTPS, so phones and computers should use this address:</p>
     <p class="host-link"><a href="$tunnel_url">$tunnel_url</a></p>
     <div class="qr host-qr">$qr</div>
-    <p class="muted">Skanna QR-koden med mobilkameran, eller skicka adressen till kompisarna.</p>
+    <p class="muted">Scan the QR code with the phone camera, or send the address to your friends.</p>
   </section>
 """
 )
 
 NO_TUNNEL_SECTION = """
   <section class="warn">
-    <h2>HTTPS är inte igång än</h2>
-    <p>Among Us kräver HTTPS när spelet och servern inte körs på samma dator.
-       Vänta tills servern skriver <b>HTTPS ÄR KLART!</b> i Terminal-fönstret och ladda om sidan.</p>
-    <p class="muted">Kommer det aldrig? Dubbelklicka på <code>hamta-cloudflared.command</code> en gång och starta om servern.</p>
+    <h2>HTTPS isn't running yet</h2>
+    <p>Among Us requires HTTPS when the game and the server don't run on the same computer.
+       Wait until the server writes <b>HTTPS IS READY!</b> in the Terminal window and reload the page.</p>
+    <p class="muted">Never happens? Double-click <code>get-cloudflared.command</code> once and restart the server.</p>
   </section>
 """
 
@@ -258,7 +258,7 @@ SCRIPT = """
   var config = __CONFIG__;
   document.documentElement.className += " js";
 
-  // --- Vilken enhet? -----------------------------------------------------
+  // --- Which device? -----------------------------------------------------
   function guessDevice() {
     var ua = navigator.userAgent || "";
     if (/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) return "ios";
@@ -283,11 +283,11 @@ SCRIPT = """
     showDevice(guessDevice());
   }
 
-  // --- Kopiera -----------------------------------------------------------
+  // --- Copy -------------------------------------------------------------
   function copyText(text, button) {
     function done() {
       var old = button.textContent;
-      button.textContent = "Kopierat!";
+      button.textContent = "Copied!";
       button.classList.add("done");
       setTimeout(function () { button.textContent = old; button.classList.remove("done"); }, 1800);
     }
@@ -317,19 +317,19 @@ SCRIPT = """
     copyText(text, b);
   });
 
-  // --- Meddelandet till kompisar -----------------------------------------
+  // --- The message to friends -------------------------------------------
   var msg = document.getElementById("msg");
   var chosenCode = "";
   function writeMessage() {
     if (!msg) return;
     var lines = [
-      "Kom och spela Among Us med oss på vår egen server, " + config.name + "!",
+      "Come and play Among Us with us on our own server, " + config.name + "!",
       "",
-      "1. Öppna " + config.url + " och följ stegen för din telefon eller dator. Det behövs bara första gången." +
-        (config.ngrok ? " Kommer det en varningssida, tryck Visit Site." : ""),
-      "2. Välj " + config.name + " under jordgloben i Among Us.",
-      chosenCode ? "3. Tryck Enter Code och skriv " + chosenCode + "."
-                 : "3. Tryck Enter Code och skriv in spelkoden som vi skickar."
+      "1. Open " + config.url + " and follow the steps for your phone or computer. It's only needed the first time." +
+        (config.ngrok ? " If you get a warning page, tap Visit Site." : ""),
+      "2. Choose " + config.name + " under the globe in Among Us.",
+      chosenCode ? "3. Tap Enter Code and type " + chosenCode + "."
+                 : "3. Tap Enter Code and type in the game code we send you."
     ];
     msg.value = lines.join("\\n");
     msg.style.height = "auto";
@@ -344,7 +344,7 @@ SCRIPT = """
     });
   }
 
-  // --- Spelen på servern -------------------------------------------------
+  // --- The games on the server -------------------------------------------
   var list = document.getElementById("games");
   var none = document.getElementById("no-games");
   function render(games) {
@@ -358,16 +358,16 @@ SCRIPT = """
       code.textContent = g.code;
       var who = document.createElement("div");
       who.className = "who";
-      who.textContent = g.host + " är värd, " + g.map + (g.public ? ", offentligt" : "");
+      who.textContent = g.host + " is hosting, " + g.map + (g.public ? ", public" : "");
       var side = document.createElement("div");
       side.className = "side";
       var count = document.createElement("span");
       count.className = "count";
       count.textContent = g.players + "/" + g.max;
-      count.title = g.players + " av " + g.max + " spelare";
+      count.title = g.players + " of " + g.max + " players";
       var state = document.createElement("span");
       state.className = "state" + (g.started ? " on" : "");
-      state.textContent = g.started ? "Pågår" : "I lobbyn";
+      state.textContent = g.started ? "Playing" : "In the lobby";
       side.appendChild(count);
       side.appendChild(state);
       var actions = document.createElement("div");
@@ -375,14 +375,14 @@ SCRIPT = """
       var copy = document.createElement("button");
       copy.className = "btn";
       copy.type = "button";
-      copy.textContent = "Kopiera kod";
+      copy.textContent = "Copy code";
       copy.dataset.copy = g.code;
       actions.appendChild(copy);
       if (msg) {
         var invite = document.createElement("button");
         invite.className = "btn";
         invite.type = "button";
-        invite.textContent = chosenCode === g.code ? "Med i meddelandet" : "Bjud in till spelet";
+        invite.textContent = chosenCode === g.code ? "In the message" : "Invite to this game";
         invite.addEventListener("click", function () {
           chosenCode = g.code;
           writeMessage();
@@ -400,7 +400,7 @@ SCRIPT = """
   }
   function refresh() {
     if (!list || !config.showGames) return;
-    fetch("/spel.json", { cache: "no-store", headers: { "ngrok-skip-browser-warning": "1" } })
+    fetch("/games.json", { cache: "no-store", headers: { "ngrok-skip-browser-warning": "1" } })
       .then(function (r) { return r.json(); })
       .then(render)
       .catch(function () {});
@@ -413,7 +413,7 @@ SCRIPT = """
 
 def _script(name: str, url: str, show_games: bool) -> str:
     config = {"name": name, "url": url, "ngrok": "ngrok" in url, "showGames": show_games}
-    # </ i texten får inte avsluta script-taggen
+    # </ in the text must not end the script tag
     return SCRIPT.replace("__CONFIG__", json.dumps(config).replace("</", "<\\/"))
 
 
@@ -427,13 +427,13 @@ def render(
     playable_from_home: bool = False,
 ) -> str:
     """
-    url = adressen som den som tittar använde. På Macen själv (http://...) är
-    tunnel_url den HTTPS-adress som kompisarna ska använda.
+    url = the address the viewer used. On the Mac itself (http://...)
+    tunnel_url is the HTTPS address the friends should use.
     """
     invite_url = url if is_https else tunnel_url
     empty_text = (
-        "Inga spel just nu. Den som är värd trycker Create Game, sedan dyker koden upp här."
-        if show_games else "Fråga värden efter spelkoden."
+        "No games right now. The host taps Create Game, then the code shows up here."
+        if show_games else "Ask the host for the game code."
     )
     sections = []
     if is_https:
@@ -455,18 +455,18 @@ def render(
     sections.append(PLAY_SECTION.substitute(num=badge(num), name=escape(name), empty_text=escape(empty_text)))
     if invite_url:
         qr_block = ""
-        if is_https:  # på Macens egen sida finns QR-koden redan längst upp
+        if is_https:  # on the Mac's own page the QR code is already at the top
             qr_block = (
                 f'<div class="invite"><div class="qr">{qr_svg(invite_url)}</div>'
-                "<p>Kompisar kan skanna koden med mobilkameran, eller så skickar du meddelandet nedanför.</p></div>"
+                "<p>Friends can scan the code with the phone camera, or you send the message below.</p></div>"
             )
         sections.append(INVITE_SECTION.substitute(num=badge(num + 1), qr_block=qr_block))
 
     footer = ""
     if is_https:
-        footer = f"<p>Adress: <code>{escape(url)}</code></p>"
+        footer = f"<p>Address: <code>{escape(url)}</code></p>"
         if "ngrok" in url:
-            footer += "<p>Visade ngrok en varningssida innan du kom hit? Det är bara första gången, och spelet påverkas inte.</p>"
+            footer += "<p>Did ngrok show a warning page before you got here? That's only the first time, and the game isn't affected.</p>"
 
     heading = full_name(name, colored=False)
     heading_html = "Emergency Meeting"
@@ -475,7 +475,7 @@ def render(
     return PAGE.substitute(
         heading=escape(heading),
         heading_html=heading_html,
-        status_extra=", även för kompisar hemifrån" if playable_from_home else "",
+        status_extra=", also for friends at home" if playable_from_home else "",
         content="".join(sections),
         footer=footer,
         script=_script(name, invite_url or url, show_games),
@@ -483,7 +483,7 @@ def render(
 
 
 def games_json(lobbies, show_games: bool) -> list:
-    """Spelen på servern, för listan på sidan."""
+    """The games on the server, for the list on the page."""
     if not show_games:
         return []
     games = []

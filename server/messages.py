@@ -1,17 +1,17 @@
 """
-Läsa och skriva Among Us-meddelanden.
+Reading and writing Among Us messages.
 
-Among Us skickar allt som bytes (ettor och nollor). Den här filen
-innehåller två hjälpklasser:
+Among Us sends everything as bytes (ones and zeros). This file
+contains two helper classes:
 
-  - MessageReader: plockar ut tal, text och delmeddelanden ur bytes
-  - MessageWriter: bygger ihop bytes som vi vill skicka
+  - MessageReader: picks numbers, text and sub-messages out of bytes
+  - MessageWriter: puts together bytes that we want to send
 
-Ett "meddelande" i Among Us ser ut så här:
+A "message" in Among Us looks like this:
 
-    [längd: 2 bytes] [tagg: 1 byte] [innehåll: <längd> bytes]
+    [length: 2 bytes] [tag: 1 byte] [content: <length> bytes]
 
-Taggen säger vad det är för sorts meddelande, t.ex. 0 = "skapa spel".
+The tag says what kind of message it is, for example 0 = "host game".
 """
 
 from __future__ import annotations
@@ -19,12 +19,12 @@ from __future__ import annotations
 import struct
 from typing import Iterator, List, Optional, Tuple
 
-# Positioner skickas som två tal mellan 0 och 65535 som betyder -50 till 50.
+# Positions are sent as two numbers between 0 and 65535 that mean -50 to 50.
 VECTOR_RANGE = 50.0
 
 
 class MessageReader:
-    """Läser data ur en bit bytes, steg för steg från början till slut."""
+    """Reads data from a piece of bytes, step by step from start to end."""
 
     def __init__(self, data: bytes, tag: Optional[int] = None):
         self.data = data
@@ -38,7 +38,7 @@ class MessageReader:
     def _take(self, count: int) -> bytes:
         if self.remaining < count:
             raise ValueError(
-                f"Försökte läsa {count} bytes men bara {self.remaining} finns kvar"
+                f"Tried to read {count} bytes but only {self.remaining} are left"
             )
         chunk = self.data[self.pos : self.pos + count]
         self.pos += count
@@ -70,9 +70,9 @@ class MessageReader:
 
     def read_packed_uint32(self) -> int:
         """
-        "Packade" tal sparar plats: små tal tar 1 byte, stora tar fler.
-        Varje byte bär 7 bitar av talet. Den översta biten säger
-        "det kommer en byte till".
+        "Packed" numbers save space: small numbers take 1 byte, big ones take more.
+        Every byte carries 7 bits of the number. The top bit says
+        "another byte is coming".
         """
         result = 0
         shift = 0
@@ -84,12 +84,12 @@ class MessageReader:
                 return result
 
     def read_packed_int32(self) -> int:
-        """Som read_packed_uint32, men kan bli negativt (t.ex. -4)."""
+        """Like read_packed_uint32, but can be negative (for example -4)."""
         value = self.read_packed_uint32() & 0xFFFFFFFF
         return value - (1 << 32) if value >= (1 << 31) else value
 
     def read_vector2(self) -> Tuple[float, float]:
-        """En position på kartan: två tal 0-65535 som betyder -50 till 50."""
+        """A position on the map: two numbers 0-65535 that mean -50 to 50."""
         x = self.read_uint16() / 65535.0
         y = self.read_uint16() / 65535.0
         return (-VECTOR_RANGE + 2 * VECTOR_RANGE * x, -VECTOR_RANGE + 2 * VECTOR_RANGE * y)
@@ -105,24 +105,24 @@ class MessageReader:
         return self._take(self.remaining)
 
     def read_message(self) -> "MessageReader":
-        """Läser ett delmeddelande: [längd 2][tagg 1][innehåll]."""
+        """Reads a sub-message: [length 2][tag 1][content]."""
         length = self.read_uint16()
         tag = self.read_byte()
         return MessageReader(self._take(length), tag=tag)
 
     def messages(self) -> Iterator["MessageReader"]:
-        """Går igenom alla delmeddelanden som finns kvar, ett i taget."""
+        """Goes through all sub-messages that are left, one at a time."""
         while self.remaining >= 3:
             yield self.read_message()
 
 
 class MessageWriter:
-    """Bygger ihop bytes som ska skickas till spelet."""
+    """Puts together bytes that will be sent to the game."""
 
     def __init__(self) -> None:
         self.buffer = bytearray()
-        # Här kommer vi ihåg var varje påbörjat delmeddelande startar,
-        # så att vi kan fylla i längden när det är klart.
+        # Here we remember where every started sub-message begins,
+        # so that we can fill in the length when it's done.
         self._open_messages: List[int] = []
 
     def write_byte(self, value: int) -> "MessageWriter":
@@ -155,11 +155,11 @@ class MessageWriter:
                 return self
 
     def write_packed_int32(self, value: int) -> "MessageWriter":
-        # Negativa tal skrivs som stora positiva, precis som i spelet.
+        # Negative numbers are written as big positive ones, just like in the game.
         return self.write_packed_uint32(value & 0xFFFFFFFF)
 
     def write_message(self, message: "MessageReader") -> "MessageWriter":
-        """Skriver tillbaka ett helt meddelande vi har tagit emot (för att skicka vidare)."""
+        """Writes back a whole message we have received (to pass it on)."""
         self.start_message(message.tag or 0)
         self.write_bytes(message.data)
         return self.end_message()
@@ -182,7 +182,7 @@ class MessageWriter:
 
     def start_message(self, tag: int) -> "MessageWriter":
         self._open_messages.append(len(self.buffer))
-        self.buffer += b"\x00\x00"  # plats för längden, fylls i senare
+        self.buffer += b"\x00\x00"  # space for the length, filled in later
         self.buffer.append(tag)
         return self
 
@@ -194,5 +194,5 @@ class MessageWriter:
 
     def to_bytes(self) -> bytes:
         if self._open_messages:
-            raise ValueError("Ett meddelande startades men avslutades aldrig")
+            raise ValueError("A message was started but never ended")
         return bytes(self.buffer)

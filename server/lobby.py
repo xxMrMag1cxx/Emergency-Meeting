@@ -1,11 +1,11 @@
 """
-Lobbyer: ett spel med en spelkod och spelarna i det.
+Lobbies: a game with a game code and the players in it.
 
-Viktigt att veta om Among Us: det mesta av spellogiken körs hos *värden*
-(den som skapade spelet), inte på servern. Servern är mest en brevbärare
-som skickar vidare meddelanden mellan spelarna. Men den behöver hålla koll
-på vem som är med i vilket spel, vem som är värd, och skapa ett litet
-"spelarinfo"-objekt för varje spelare.
+Important to know about Among Us: most of the game logic runs on the *host*
+(the one who created the game), not on the server. The server is mostly a
+mail carrier that passes messages on between the players. But it needs to
+keep track of who is in which game and who is host, and create a small
+"player info" object for each player.
 """
 
 from __future__ import annotations
@@ -24,20 +24,20 @@ log = logging.getLogger("lobby")
 
 
 class GameState:
-    NOT_STARTED = "i lobbyn"
-    STARTED = "spelar"
-    ENDED = "slut"
+    NOT_STARTED = "in the lobby"
+    STARTED = "playing"
+    ENDED = "over"
 
 
 class Limbo:
-    """Var i anslutningen en spelare är."""
+    """Where in connecting a player is."""
 
-    PRE_SPAWN = "ansluter"  # har inte kommit in i lobbyn än
-    IN_GAME = "i spelet"  # är inne och ska få alla meddelanden
-    WAITING_FOR_HOST = "väntar på värden"  # efter en runda, väntar på att värden kommer tillbaka
+    PRE_SPAWN = "connecting"  # hasn't come into the lobby yet
+    IN_GAME = "in the game"  # is in and should get all messages
+    WAITING_FOR_HOST = "waiting for the host"  # after a round, waiting for the host to come back
 
 
-# --- Spelare och objekt --------------------------------------------------
+# --- Players and objects --------------------------------------------------
 
 class Player:
     def __init__(self, connection: Connection, lobby: "Lobby"):
@@ -60,45 +60,45 @@ class Player:
         else:
             writer.start_message(hs.platform).write_bytes(hs.platform_raw).end_message()
 
-    # --- För plugins -----------------------------------------------------
+    # --- For plugins -----------------------------------------------------
 
     @property
     def is_host(self) -> bool:
-        """True om spelaren är värd i sin lobby."""
+        """True if the player is host in their lobby."""
         return self.lobby.host_id == self.client_id
 
     @property
     def is_bot(self) -> bool:
-        """True om spelaren är en bot som servern styr."""
+        """True if the player is a bot that the server controls."""
         return getattr(self.connection, "is_bot", False)
 
     @property
     def color(self) -> str:
-        """Färgen spelaren har valt, t.ex. "Red". Tom text om den inte är känd än."""
+        """The color the player has picked, for example "Red". Empty text if it isn't known yet."""
         number = self.lobby.colors.get(self.client_id)
         return protocol.COLORS.get(number, "") if number is not None else ""
 
     @property
     def platform(self) -> str:
-        """Vad spelaren spelar på, t.ex. "Steam (PC)" eller "iPhone/iPad"."""
+        """What the player plays on, for example "Steam (PC)" or "iPhone/iPad"."""
         hs = self.connection.handshake
-        return hs.platform_text if hs else "Okänd"
+        return hs.platform_text if hs else "Unknown"
 
     def send_chat(self, text: str) -> bool:
         """
-        Skickar ett chattmeddelande som bara den här spelaren ser.
-        Det ser ut som att spelaren själv skrev det. Fungerar först när
-        spelarens gubbe finns i lobbyn (se on_player_spawned).
+        Sends a chat message that only this player sees.
+        It looks like the player wrote it themselves. Works only once the
+        player's character is in the lobby (see on_player_spawned).
         """
         net_id = self.lobby.control_net_id(self.client_id)
         if net_id is None:
-            log.debug("Kan inte skicka chatt till %s än, gubben finns inte", self.name)
+            log.debug("Can't send chat to %s yet, the character doesn't exist", self.name)
             return False
         self.lobby.send_to(self.client_id, self.lobby.chat_payload(net_id, text, self.client_id))
         return True
 
-    def disconnect(self, message: str = "Du kopplades bort av servern.") -> None:
-        """Kopplar bort spelaren och visar `message` i spelet."""
+    def disconnect(self, message: str = "You were disconnected by the server.") -> None:
+        """Disconnects the player and shows `message` in the game."""
         self.connection.disconnect(protocol.DisconnectReason.CUSTOM, message)
 
 
@@ -108,13 +108,13 @@ COSMETICS = ("hat", "pet", "skin", "visor", "nameplate")
 @dataclass
 class PlayerInfoObject:
     """
-    Ett "spelarinfo"-objekt som servern äger. Där sparar spelet namn,
-    färg, hatt, nivå med mera.
+    A "player info" object that the server owns. That's where the game keeps
+    the name, color, hat, level and more.
 
-    Servern skapar objektet och håller det uppdaterat när värden byter namn
-    eller färg och när spelaren byter hatt osv. Annars skulle spelare som går
-    med senare se de andra som "gröna bönor" utan namn, färg och kläder,
-    och det får spelet att krångla.
+    The server creates the object and keeps it updated when the host changes
+    name or color and when the player changes hat etc. Otherwise players who
+    join later would see the others as "green beans" without name, color and
+    cosmetics, and that makes the game act up.
     """
 
     net_id: int
@@ -140,21 +140,21 @@ class PlayerInfoObject:
         w.write_byte(0)  # utstyrsel: standard
         w.write_string(self.name)
         w.write_packed_int32(self.color)
-        for cosmetic in COSMETICS:  # hatt, husdjur, dräkt, visir, namnskylt
+        for cosmetic in COSMETICS:  # hat, pet, skin, visor, nameplate
             w.write_string(self.cosmetics[cosmetic])
-        for cosmetic in COSMETICS:  # ändringsräknare för de fem ovan
+        for cosmetic in COSMETICS:  # change counters for the five above
             w.write_byte(self.sequence[cosmetic])
         w.write_packed_uint32(self.level)
-        w.write_byte(0)  # flaggor (frånkopplad, död)
+        w.write_byte(0)  # flags (disconnected, dead)
         w.write_uint16(0)  # roll
-        w.write_bool(False)  # roll när levande
-        w.write_byte(0)  # antal uppdrag
+        w.write_bool(False)  # role when alive
+        w.write_byte(0)  # number of tasks
         w.write_string(self.friend_code)
         w.write_string(self.puid)
         return w.to_bytes()
 
     def update_from_data(self, reader: MessageReader) -> None:
-        """Läser ett helt spelarinfo-tillstånd (om värden skickar ett)."""
+        """Reads a whole player info state (if the host sends one)."""
         reader.read_byte()  # spelarnummer
         reader.read_packed_int32()  # klient-id
         for _ in range(reader.read_byte()):
@@ -172,16 +172,16 @@ class PlayerInfoObject:
 
 @dataclass
 class RoundInfo:
-    """Det som har hänt under en runda. Visas när rundan är slut."""
+    """What has happened during a round. Shown when the round is over."""
 
     roles: Dict[int, int] = field(default_factory=dict)  # spelar-id -> roll
-    deaths: List[Tuple[str, str]] = field(default_factory=list)  # (offer, mördare)
+    deaths: List[Tuple[str, str]] = field(default_factory=list)  # (victim, killer)
     exiled: List[str] = field(default_factory=list)
     meetings: int = 0
     tasks_done: Dict[int, int] = field(default_factory=dict)
     started_at: float = field(default_factory=time.monotonic)
-    dead: Set[int] = field(default_factory=set)  # döda gubbars objektnummer
-    protected: Dict[int, float] = field(default_factory=dict)  # gubbe -> när en Guardian Angel skyddade den
+    dead: Set[int] = field(default_factory=set)  # the object numbers of dead characters
+    protected: Dict[int, float] = field(default_factory=dict)  # character -> when a Guardian Angel protected it
     in_meeting: bool = False
 
 
@@ -200,28 +200,28 @@ class Lobby:
         self.server_objects: Dict[int, PlayerInfoObject] = {}
         self._next_net_id = protocol.FIRST_SERVER_NET_ID
 
-        # Spellogiken som äger lobbyn (behövs för att skapa bots).
+        # The game logic that owns the lobby (needed to create bots).
         self.server = None
 
-        # Värdens "GameManager"-objekt, där inställningarna bor.
+        # The host's "GameManager" object, where the settings live.
         self.game_manager_net_id: Optional[int] = None
-        self.options_part = 4  # vilken del av GameManager som är inställningarna
+        self.options_part = 4  # which part of GameManager holds the settings
 
-        # Spelargubbarnas objektnummer -> vems gubbe det är (spelar-id).
+        # The player characters' object numbers -> whose character it is (client id).
         self.player_controls: Dict[int, int] = {}
-        # En giltig namnskylt från spelet (bots använder den).
+        # A valid nameplate from the game (bots use it).
         self.known_nameplate = ""
-        # Spelarinfo från förra rundan, så att färg och kläder kan behållas.
+        # Player info from the last round, so that color and cosmetics can be kept.
         self.previous_infos: Dict[int, PlayerInfoObject] = {}
-        # Spelar-id -> färgnummer, så att vi bara loggar när färgen ändras.
+        # Client id -> color number, so that we only log when the color changes.
         self.colors: Dict[int, int] = {}
-        # Gubbens objektnummer -> spelarnummer i spelet (0, 1, 2 ...).
+        # The character's object number -> player number in the game (0, 1, 2 ...).
         self.control_player_ids: Dict[int, int] = {}
-        # Gubbens objektnummer -> (rörelseobjektets nummer, sekvensnummer, position)
-        # som värden skapade gubben med. Bots behöver veta var de står.
+        # The character's object number -> (the movement object's number, sequence number, position)
+        # that the host created the character with. Bots need to know where they stand.
         self.transforms: Dict[int, Tuple[int, int, Tuple[float, float]]] = {}
         self.meeting_hud_net_id: Optional[int] = None
-        # Vad som händer under rundan (roller, dödsfall, möten ...).
+        # What happens during the round (roles, deaths, meetings ...).
         self.round = RoundInfo()
 
     def __str__(self) -> str:
@@ -233,17 +233,17 @@ class Lobby:
 
     @property
     def host_name(self) -> str:
-        return self.host.name if self.host else "Ingen värd"
+        return self.host.name if self.host else "No host"
 
     @property
     def host_authority(self) -> bool:
-        """True om värden har ett mod som själv bestämmer över dödande (version +25)."""
+        """True if the host has a mod that decides about killing by itself (version +25)."""
         host = self.host
         hs = host.connection.handshake if host is not None else None
         return hs is not None and hs.game_version % 50 >= protocol.HOST_AUTHORITY_REVISION
 
     def setting_number(self, name: str, default: float) -> float:
-        """En inställning som tal, t.ex. "Discussion Time" -> 15.0."""
+        """A setting as a number, for example "Discussion Time" -> 15.0."""
         text = self.options.settings.get(name, "")
         number = ""
         for char in text:
@@ -256,15 +256,15 @@ class Lobby:
         except ValueError:
             return default
 
-    # --- För plugins -----------------------------------------------------
+    # --- For plugins -----------------------------------------------------
 
     @property
     def player_list(self) -> List[Player]:
-        """Alla spelare i lobbyn."""
+        """All players in the lobby."""
         return list(self.players.values())
 
     def find_player(self, name: str) -> Optional[Player]:
-        """Letar upp en spelare på namnet (stora/små bokstäver spelar ingen roll)."""
+        """Finds a player by name (upper/lower case doesn't matter)."""
         for player in self.players.values():
             if player.name.lower() == name.lower():
                 return player
@@ -272,7 +272,7 @@ class Lobby:
 
     @property
     def settings(self) -> Dict[str, str]:
-        """Alla spelinställningar, t.ex. lobby.settings["Kill Cooldown"] -> "25 s"."""
+        """All game settings, for example lobby.settings["Kill Cooldown"] -> "25 s"."""
         return dict(self.options.settings)
 
     @property
@@ -285,22 +285,22 @@ class Lobby:
 
     @property
     def bots(self) -> List[Player]:
-        """Alla bots i lobbyn, i den ordning de lades till."""
+        """All bots in the lobby, in the order they were added."""
         return [p for p in self.players.values() if p.is_bot]
 
     def add_bot(self, name: str, do_tasks: bool = False, walk: bool = True) -> Optional[Player]:
         """
-        Lägger till en bot med namnet `name`. Returnerar boten, eller None
-        om det inte gick (lobbyn är full, en runda pågår, eller ingen värd).
-        Med do_tasks=True gör boten sina uppdrag och röstar skip under rundan.
-        Med walk=False står boten still i stället för att gå runt.
+        Adds a bot with the name `name`. Returns the bot, or None if it
+        didn't work (the lobby is full, a round is going on, or there is no host).
+        With do_tasks=True the bot does its tasks and votes skip during the round.
+        With walk=False the bot stands still instead of walking around.
         """
         if self.server is None:
             return None
         return self.server.add_bot(self, name, do_tasks, walk)
 
     def remove_bot(self, bot: Optional[Player] = None) -> bool:
-        """Tar bort en bot (den senast tillagda om ingen anges). False om det inte fanns någon."""
+        """Removes a bot (the last one added if none is given). False if there wasn't one."""
         bots = self.bots
         if bot is None:
             bot = bots[-1] if bots else None
@@ -311,23 +311,23 @@ class Lobby:
 
     def send_chat(self, text: str) -> bool:
         """
-        Skickar ett chattmeddelande till alla i lobbyn. Det syns som att
-        värden skrev det.
+        Sends a chat message to everyone in the lobby. It looks like the
+        host wrote it.
         """
         net_id = self.control_net_id(self.host_id)
         if net_id is None:
-            log.debug("Kan inte skicka chatt i %s än, värdens gubbe finns inte", self.code)
+            log.debug("Can't send chat in %s yet, the host's character doesn't exist", self.code)
             return False
         self.send_to_all(self.chat_payload(net_id, text))
         return True
 
     def player_by_control(self, net_id: int) -> Optional["Player"]:
-        """Spelaren som äger gubben med objektnummer `net_id`."""
+        """The player who owns the character with object number `net_id`."""
         owner = self.player_controls.get(net_id)
         return self.players.get(owner) if owner is not None else None
 
     def player_by_player_id(self, player_id: int) -> Optional["Player"]:
-        """Spelaren med spelarnummer `player_id` (det nummer spelet använder i röstning m.m.)."""
+        """The player with player number `player_id` (the number the game uses in voting etc.)."""
         for obj in self.server_objects.values():
             if obj.player_id == player_id:
                 return self.players.get(obj.client_id)
@@ -337,7 +337,7 @@ class Lobby:
         return None
 
     def control_net_id(self, client_id: int) -> Optional[int]:
-        """Objektnumret för en spelares gubbe (behövs för att skicka chatt)."""
+        """The object number of a player's character (needed to send chat)."""
         for net_id, owner in self.player_controls.items():
             if owner == client_id:
                 return net_id
@@ -356,7 +356,7 @@ class Lobby:
         w.end_message()
         return w.to_bytes()
 
-    # --- Vilka spelare ska få meddelanden --------------------------------
+    # --- Which players should get messages --------------------------------
 
     def in_game(self, except_id: Optional[int] = None) -> List[Player]:
         return [
@@ -365,7 +365,7 @@ class Lobby:
             if p.limbo == Limbo.IN_GAME and p.client_id != except_id
         ]
 
-    # --- Skicka ----------------------------------------------------------
+    # --- Send ------------------------------------------------------------
 
     @staticmethod
     def send(players: Iterable[Player], payload: bytes, reliable: bool = True) -> None:
@@ -393,7 +393,7 @@ class Lobby:
         return 255
 
     def info_for_control(self, net_id: int) -> Optional[PlayerInfoObject]:
-        """Spelarinfon för ägaren av gubben med objektnummer `net_id`."""
+        """The player info for the owner of the character with object number `net_id`."""
         owner = self.player_controls.get(net_id)
         return self.find_player_info(owner) if owner is not None else None
 
@@ -413,8 +413,8 @@ class Lobby:
         w.start_message(protocol.GameDataTag.SPAWN)
         w.write_packed_uint32(protocol.SPAWN_PLAYER_INFO)
         w.write_packed_int32(protocol.SERVER_OWNED)
-        w.write_byte(0)  # spawn-flaggor
-        w.write_packed_uint32(1)  # antal delar
+        w.write_byte(0)  # spawn flags
+        w.write_packed_uint32(1)  # number of parts
         w.write_packed_uint32(obj.net_id)
         w.start_message(1).write_bytes(obj.serialize()).end_message()
         w.end_message()
@@ -429,23 +429,23 @@ class Lobby:
         return w.to_bytes()
 
     def spawn_player_info(self, player: Player) -> None:
-        """Skapar spelarinfo för en spelare som just har laddat lobbyn."""
+        """Creates player info for a player who has just loaded the lobby."""
         if self.find_player_info(player.client_id) is not None:
             return
         player_id = self.next_player_id()
         obj = PlayerInfoObject(net_id=self._next_net_id, client_id=player.client_id, player_id=player_id)
         old = self.previous_infos.get(player.client_id)
         if old is not None:
-            # Efter en runda: behåll färg och kläder från förra gången.
+            # After a round: keep color and cosmetics from last time.
             obj.color, obj.cosmetics, obj.sequence = old.color, dict(old.cosmetics), dict(old.sequence)
             obj.level = old.level
         self._next_net_id += 1
         self.server_objects[obj.net_id] = obj
-        log.debug("%s: skapar spelarinfo %d för %s", self, obj.net_id, player.name)
+        log.debug("%s: creating player info %d for %s", self, obj.net_id, player.name)
         self.send_to_all(self.spawn_message(obj))
 
     def sync_player_infos(self, player: Player) -> None:
-        """Skickar alla befintliga spelarinfo-objekt till en ny spelare."""
+        """Sends all existing player info objects to a new player."""
         for obj in self.server_objects.values():
             self.send_to(player.client_id, self.spawn_message(obj, target_id=player.client_id))
 
@@ -459,8 +459,8 @@ class Lobby:
 class LobbyManager:
     def __init__(self) -> None:
         self.lobbies: Dict[int, Lobby] = {}
-        # Spelare som hämtat en token via HTTPS men inte anslutit via UDP än:
-        # namn -> (tid, adress). Används för att hitta anslutningsproblem.
+        # Players who fetched a token over HTTPS but haven't connected over UDP yet:
+        # name -> (time, address). Used to find connection problems.
         self.waiting_for_udp: Dict[str, Tuple[float, str]] = {}
 
     def create(self, options: GameOptions) -> Lobby:

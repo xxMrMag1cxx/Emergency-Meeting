@@ -1,17 +1,17 @@
 """
-Spellogiken: vad servern gör med meddelandena från spelarna.
+The game logic: what the server does with the messages from the players.
 
-Flödet när någon trycker "Create Game":
+The flow when someone presses "Create Game":
 
-  1. HostGame   spelet skickar sina inställningar  -> vi skapar en lobby
-                och svarar med spelkoden
-  2. JoinGame   spelet går med i sitt eget spel     -> vi svarar JoinedGame
-                och spelaren blir värd
-  3. GameData   värden laddar lobbyn och skickar    -> vi skickar vidare till
-                speldata hela tiden                    alla andra spelare
+  1. HostGame   the game sends its settings         -> we create a lobby
+                                                       and answer with the game code
+  2. JoinGame   the game joins its own game         -> we answer JoinedGame
+                                                       and the player becomes host
+  3. GameData   the host loads the lobby and sends  -> we pass it on to
+                game data all the time                 all the other players
 
-När fler går med med spelkoden händer samma sak från steg 2, och servern
-berättar för alla i lobbyn att någon ny har kommit.
+When more people join with the game code the same thing happens from step 2,
+and the server tells everyone in the lobby that someone new has arrived.
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ from typing import Callable, List, Optional
 
 from . import protocol
 from .config import Config
+from .i18n import tr
 from .bots import BotConnection
 from .hazel import Connection
 from .lobby import GameState, Limbo, Lobby, LobbyManager, Player, RoundInfo
@@ -30,11 +31,21 @@ from .messages import MessageReader, MessageWriter
 from .options import GameOptions, differences, read_options
 from .plugins import PluginManager
 
-log = logging.getLogger("spel")
+log = logging.getLogger("game")
 
 Reason = protocol.DisconnectReason
 ALTER_GAME_PRIVACY = 1
-EMPTY_LOBBY_TIMEOUT = 60  # sekunder innan en lobby utan spelare tas bort
+EMPTY_LOBBY_TIMEOUT = 60  # seconds before a lobby without players is removed
+
+
+def translate_reason(why: str) -> str:
+    """Why someone disconnected, in the terminal's language (the report file is always English)."""
+    prefix = "the game disconnected: "
+    if why.startswith(prefix):
+        reason, _, text = why[len(prefix):].partition(": ")
+        reason = tr(reason) + (f": {text}" if text else "")
+        return tr("the game disconnected: {reason}", reason=reason)
+    return tr(why)
 
 
 class Game:
@@ -43,11 +54,11 @@ class Game:
         self.lobbies = lobbies
         self.plugins = plugins or PluginManager()
         self._next_client_id = 0
-        # Plugin-händelser som ska köras först när speldatan har skickats vidare.
+        # Plugin events that should run only after the game data has been passed on.
         self._after_forward: List[Callable[[], None]] = []
 
     # =====================================================================
-    # Anslutningar
+    # Connections
     # =====================================================================
 
     def on_connect(self, connection: Connection) -> None:
@@ -56,14 +67,14 @@ class Game:
 
         hs = connection.handshake
         if hs is None:
-            log.info("En spelare anslöt från %s (kunde inte läsa detaljerna)", connection.address[0])
+            log.info("A player connected from %s (could not read the details)", connection.address[0])
             return
         self.lobbies.waiting_for_udp.pop(hs.name, None)
         log.info(
-            "%s anslöt (spelversion %s, %s)",
+            "%s connected (game version %s, %s)",
             hs.name,
             hs.game_version_text,
-            hs.platform_text,
+            tr(hs.platform_text),
         )
 
     def on_disconnect(self, connection: Connection, why: str) -> None:
@@ -71,17 +82,17 @@ class Game:
         lobby_code = player.lobby.code if player is not None else None
         if player is not None:
             self.remove_player(player.lobby, player.client_id, Reason.EXIT_GAME)
-        log.info("%s kopplade från (%s)", connection.name, why)
+        log.info("%s disconnected (%s)", connection.name, translate_reason(why))
 
-        # Spara den svarta lådan om spelaren var med i ett spel.
+        # Save the black box if the player was in a game.
         recorder = getattr(connection, "recorder", None)
         if lobby_code is not None and recorder is not None:
             path = recorder.save(connection.name, why, lobby_code)
             if path is not None:
-                log.info("Sparade vad som hände precis innan i loggar/%s", path.name)
+                log.info("Saved what happened just before in logs/%s", path.name)
 
     # =====================================================================
-    # Meddelanden
+    # Messages
     # =====================================================================
 
     def on_message(self, connection: Connection, message: MessageReader, reliable: bool) -> None:
@@ -103,42 +114,42 @@ class Game:
 
         if handler is None:
             if tag != protocol.SET_ACTIVE_POD_TYPE:
-                log.info("%s skickade %s (hanteras inte än)", connection.name, protocol.message_name(tag))
+                log.info("%s sent %s (not handled yet)", connection.name, protocol.message_name(tag))
             return
 
         try:
             handler(connection, message, reliable)
         except ValueError as error:
             log.warning(
-                "Kunde inte läsa %s från %s: %s",
+                "Could not read %s from %s: %s",
                 protocol.message_name(tag),
                 connection.name,
                 error,
             )
 
-    # --- Skapa och gå med ------------------------------------------------
+    # --- Create and join ------------------------------------------------
 
     def handle_host_game(self, connection: Connection, message: MessageReader, reliable: bool) -> None:
         try:
             options = read_options(message)
         except ValueError:
-            log.warning("Kunde inte läsa spelinställningarna från %s, använder standardvärden", connection.name)
+            log.warning("Could not read the game settings from %s, using the default values", connection.name)
             options = GameOptions()
 
         lobby = self.lobbies.create(options)
         lobby.server = self
         log.info(
-            "%s skapade spelet %s (%s, %s, max %d spelare, %d impostor%s)",
+            "%s created the game %s (%s, %s, max %d players, %d impostor%s)",
             connection.name,
             lobby.code,
             options.map_name,
-            options.mode_name,
+            tr(options.mode_name),
             options.max_players,
             options.num_impostors,
             "s" if options.num_impostors != 1 else "",
         )
 
-        # Svara med spelkoden. Spelet skickar sedan JoinGame med den.
+        # Answer with the game code. The game then sends JoinGame with it.
         w = MessageWriter().start_message(protocol.HOST_GAME).write_int32(lobby.code_int).end_message()
         connection.send_reliable(w.to_bytes())
 
@@ -146,7 +157,7 @@ class Game:
         code_int = message.read_int32()
         lobby = self.lobbies.find(code_int)
         if lobby is None:
-            log.info("%s försökte gå med i ett spel som inte finns", connection.name)
+            log.info("%s tried to join a game that doesn't exist", connection.name)
             connection.disconnect(Reason.GAME_NOT_FOUND)
             return
         if lobby.state == GameState.STARTED:
@@ -160,7 +171,7 @@ class Game:
             if len(lobby.players) >= lobby.options.max_players:
                 connection.disconnect(Reason.GAME_FULL)
                 return
-            if player is not None:  # var med i ett annat spel
+            if player is not None:  # was in another game
                 self.remove_player(player.lobby, player.client_id, Reason.EXIT_GAME)
             player = Player(connection, lobby)
             connection.player = player
@@ -168,7 +179,7 @@ class Game:
             if lobby.host_id == -1:
                 lobby.host_id = player.client_id
         elif player.limbo == Limbo.IN_GAME:
-            connection.disconnect(Reason.CUSTOM, "Du är redan med i spelet.")
+            connection.disconnect(Reason.CUSTOM, "You are already in the game.")
             return
 
         if lobby.state == GameState.ENDED:
@@ -183,14 +194,14 @@ class Game:
 
     def _join_lobby(self, lobby: Lobby, player: Player) -> None:
         if player.client_id == lobby.host_id:
-            role = "värd"
+            role = tr("host")
         elif player.is_bot:
-            role = "bot"
+            role = tr("bot")
         else:
-            role = "spelare"
+            role = tr("player")
         self._warn_if_other_version(lobby, player)
         log.info(
-            "%s gick med i %s som %s (%d/%d spelare)",
+            "%s joined %s as %s (%d/%d players)",
             player.name,
             lobby.code,
             role,
@@ -212,8 +223,8 @@ class Game:
         theirs = host.connection.handshake.game_version
         if mine != theirs:
             log.warning(
-                "%s har en annan spelversion (%s) än värden %s (%s). Det kan krångla, "
-                "uppdatera spelet på båda om det blir konstigt.",
+                "%s has another game version (%s) than the host %s (%s). That can cause trouble, "
+                "update the game on both if things get weird.",
                 player.name,
                 protocol.decode_game_version(mine),
                 host.name,
@@ -221,14 +232,14 @@ class Game:
             )
 
     def _join_after_round(self, lobby: Lobby, player: Player) -> None:
-        """Efter en runda: värden måste komma tillbaka först."""
+        """After a round: the host has to come back first."""
         if player.client_id == lobby.host_id:
             lobby.state = GameState.NOT_STARTED
             self._join_lobby(lobby, player)
             self._let_waiting_players_in(lobby)
             return
 
-        log.info("%s väntar på att värden ska komma tillbaka till %s", player.name, lobby.code)
+        log.info("%s is waiting for the host to come back to %s", player.name, lobby.code)
         player.limbo = Limbo.WAITING_FOR_HOST
         w = MessageWriter().start_message(protocol.WAIT_FOR_HOST)
         w.write_int32(lobby.code_int).write_int32(player.client_id).end_message()
@@ -243,7 +254,7 @@ class Game:
                 player.limbo = Limbo.IN_GAME
                 player.connection.send_reliable(payload)
 
-    # --- Spelets gång -----------------------------------------------------
+    # --- The course of the game --------------------------------------------
 
     def handle_start_game(self, connection: Connection, message: MessageReader, reliable: bool) -> None:
         player, lobby = self._host_check(connection, message)
@@ -252,7 +263,7 @@ class Game:
         lobby.state = GameState.STARTED
         lobby.round = RoundInfo()
         log.info(
-            "%s: spelet startar! (%d spelare, %s)",
+            "%s: the game is starting! (%d players, %s)",
             lobby.code,
             len(lobby.players),
             lobby.options.map_name,
@@ -268,13 +279,13 @@ class Game:
             reason = message.read_byte()
         except ValueError:
             reason = -1
-        result = protocol.GAME_OVER_REASONS.get(reason, f"rundan är slut (anledning {reason})")
+        result = protocol.GAME_OVER_REASONS.get(reason, f"the round is over (reason {reason})")
         lobby.state = GameState.ENDED
         lobby.send_to_all(self._forward(message))
         self._log_round_summary(lobby, result)
         for p in lobby.players.values():
             p.limbo = Limbo.PRE_SPAWN
-        # Spelarinfo och gubbar skapas på nytt när alla kommer tillbaka till lobbyn.
+        # Player info and characters are created again when everyone comes back to the lobby.
         lobby.previous_infos = {obj.client_id: obj for obj in lobby.server_objects.values()}
         lobby.server_objects.clear()
         lobby.player_controls.clear()
@@ -287,7 +298,7 @@ class Game:
     def _log_round_summary(self, lobby: Lobby, result: str) -> None:
         r = lobby.round
         minutes, seconds = divmod(int(time.monotonic() - r.started_at), 60)
-        log.info("%s: RUNDAN ÄR SLUT. %s (%d min %d s, %d möten)", lobby.code, result, minutes, seconds, r.meetings)
+        log.info("%s: THE ROUND IS OVER. %s (%d min %d s, %d meetings)", lobby.code, tr(result), minutes, seconds, r.meetings)
         impostors = [
             lobby.players[cid].name
             for cid, role in r.roles.items()
@@ -297,11 +308,11 @@ class Game:
             log.info("%s:   Impostors: %s", lobby.code, ", ".join(impostors))
         for cid, role in r.roles.items():
             if cid in lobby.players and role not in (0, 1):
-                log.info("%s:   %s var %s", lobby.code, lobby.players[cid].name, protocol.ROLES.get(role, role))
+                log.info("%s:   %s was %s", lobby.code, lobby.players[cid].name, tr(str(protocol.ROLES.get(role, role))))
         for victim, killer in r.deaths:
-            log.info("%s:   %s dödades av %s", lobby.code, victim, killer)
+            log.info("%s:   %s was killed by %s", lobby.code, victim, killer)
         for name in r.exiled:
-            log.info("%s:   %s röstades ut", lobby.code, name)
+            log.info("%s:   %s was voted out", lobby.code, name)
 
     def handle_alter_game(self, connection: Connection, message: MessageReader, reliable: bool) -> None:
         player, lobby = self._host_check(connection, message)
@@ -312,7 +323,7 @@ class Game:
         lobby.send_to_all(self._forward(message), except_id=player.client_id)
         if tag == ALTER_GAME_PRIVACY:
             lobby.is_public = value
-            log.info("%s är nu %s", lobby.code, "offentligt" if value else "privat")
+            log.info("%s is now %s", lobby.code, tr("public") if value else tr("private"))
             self.plugins.fire("on_privacy_changed", lobby, value)
 
     def handle_remove_player(self, connection: Connection, message: MessageReader, reliable: bool) -> None:
@@ -332,14 +343,14 @@ class Game:
         target = lobby.players.get(client_id)
         if target is None:
             return
-        log.info("%s: %s blev %s av värden", lobby.code, target.name, "bannad" if ban else "utsparkad")
+        log.info("%s: %s was %s by the host", lobby.code, target.name, tr("banned") if ban else tr("kicked"))
 
         w = MessageWriter().start_message(protocol.KICK_PLAYER)
         w.write_int32(lobby.code_int).write_packed_int32(client_id).write_bool(ban).end_message()
         lobby.send_to_all(w.to_bytes())
         self.remove_player(lobby, client_id, Reason.BANNED if ban else Reason.KICKED)
 
-        # Om spelaren inte lämnar själv kopplar vi bort hen efter en stund.
+        # If the player doesn't leave by themselves, we disconnect them after a while.
         def force_disconnect() -> None:
             if target.connection.connected and target.connection.player is None:
                 target.connection.disconnect(Reason.BANNED if ban else Reason.KICKED)
@@ -356,7 +367,7 @@ class Game:
         w.end_message()
         connection.send_reliable(w.to_bytes())
 
-    # --- Speldata: det som händer i själva spelet ------------------------
+    # --- Game data: what happens in the game itself ------------------------
 
     def handle_game_data(self, connection: Connection, message: MessageReader, reliable: bool) -> None:
         player = self._player(connection)
@@ -369,8 +380,8 @@ class Game:
         to_one = message.tag == protocol.GAME_DATA_TO
         target_id = message.read_packed_int32() if to_one else None
 
-        # Titta på innehållet: några saker måste servern själv reagera på.
-        # Ett plugin kan också stoppa en del, t.ex. ett chattmeddelande.
+        # Look at the contents: some things the server has to react to itself.
+        # A plugin can also stop a part, for example a chat message.
         kept: List[MessageReader] = []
         blocked = False
         parts = MessageReader(message.data[message.pos :]).messages()
@@ -381,10 +392,10 @@ class Game:
                 else:
                     kept.append(part)
         except ValueError as error:
-            log.debug("Kunde inte tolka speldata från %s: %s", player.name, error)
-            blocked = False  # skicka vidare allt oförändrat om vi inte förstod
+            log.debug("Could not understand game data from %s: %s", player.name, error)
+            blocked = False  # pass everything on unchanged if we didn't understand
 
-        # ...och skicka sedan vidare till de andra.
+        # ...and then pass it on to the others.
         if blocked:
             if not kept:
                 self._run_after_forward()
@@ -407,7 +418,7 @@ class Game:
 
     @staticmethod
     def _rebuild(tag: int, code_int: int, target_id: Optional[int], parts: List[MessageReader]) -> bytes:
-        """Bygger ett nytt GameData-meddelande med bara vissa delar kvar."""
+        """Builds a new GameData message with only some parts left."""
         w = MessageWriter().start_message(tag).write_int32(code_int)
         if target_id is not None:
             w.write_packed_int32(target_id)
@@ -417,14 +428,14 @@ class Game:
         return w.to_bytes()
 
     def _inspect_game_data(self, lobby: Lobby, player: Player, part: MessageReader) -> Optional[bool]:
-        """Returnerar False om den här delen inte ska skickas vidare."""
+        """Returns False if this part should not be passed on."""
         tag = part.tag
 
         if tag == protocol.GameDataTag.SCENE_CHANGE:
             client_id = part.read_packed_int32()
             scene = part.read_string()
             if client_id == player.client_id and scene == "OnlineGame":
-                log.debug("%s har laddat lobbyn i %s", player.name, lobby.code)
+                log.debug("%s has loaded the lobby in %s", player.name, lobby.code)
                 lobby.sync_player_infos(player)
                 lobby.spawn_player_info(player)
 
@@ -436,7 +447,7 @@ class Game:
             obj = lobby.server_objects.get(net_id)
             if obj is not None:
                 try:
-                    obj.update_from_data(part)  # spara senaste namn, färg osv.
+                    obj.update_from_data(part)  # save the latest name, color etc.
                 except ValueError:
                     pass
             elif net_id == lobby.game_manager_net_id:
@@ -454,14 +465,14 @@ class Game:
                 lobby.round.in_meeting = False
         return None
 
-    # --- Saker som händer i lobbyn: inställningar, färger, chatt ---------
+    # --- Things that happen in the lobby: settings, colors, chat ---------
 
     def _inspect_spawn(self, lobby: Lobby, part: MessageReader) -> None:
-        """Någon (oftast värden) skapar ett objekt. Vissa vill vi hålla koll på."""
+        """Someone (usually the host) creates an object. Some of them we want to keep track of."""
         spawn_type = part.read_packed_uint32()
         owner = part.read_packed_int32()
-        part.read_byte()  # flaggor
-        components = []  # (objektnummer, data) för varje del av objektet
+        part.read_byte()  # flags
+        components = []  # (object number, data) for each part of the object
         for _ in range(part.read_packed_uint32()):
             components.append((part.read_packed_uint32(), part.read_message()))
         if not components:
@@ -469,15 +480,15 @@ class Game:
         net_id, data = components[0]
 
         if spawn_type == protocol.SPAWN_PLAYER_CONTROL:
-            # Värden skickar ALLA gubbar igen till varje ny spelare som går med.
-            # Bara första gången är gubben ny; annars blir det dubbla händelser.
+            # The host sends ALL characters again to every new player who joins.
+            # Only the first time is the character new; otherwise events would come twice.
             is_new = net_id not in lobby.player_controls
             lobby.player_controls[net_id] = owner
             try:
-                data.read_bool()  # "är ny"
+                data.read_bool()  # "is new"
                 lobby.control_player_ids[net_id] = data.read_byte()
                 if is_new and len(components) >= 3:
-                    # Del 3 är rörelserna: sekvensnummer och var gubben står.
+                    # Part 3 is the movement: sequence number and where the character stands.
                     transform_id, transform = components[2]
                     sequence = transform.read_uint16()
                     lobby.transforms[net_id] = (transform_id, sequence, transform.read_vector2())
@@ -485,8 +496,8 @@ class Game:
                 pass
             spawned = lobby.players.get(owner)
             if spawned is not None and is_new:
-                # Vänta tills alla har fått veta om gubben, annars hamnar t.ex.
-                # ett välkomstmeddelande från ett plugin ingenstans.
+                # Wait until everyone knows about the character, otherwise for example
+                # a welcome message from a plugin ends up nowhere.
                 def after_spawn() -> None:
                     if isinstance(spawned.connection, BotConnection):
                         spawned.connection.on_spawned(net_id)
@@ -503,17 +514,17 @@ class Game:
             for component in data.messages():
                 if component.tag == lobby.options_part:
                     lobby.options = read_options(component)
-                    log.debug("%s: inställningarna lästa från GameManager", lobby.code)
+                    log.debug("%s: the settings were read from GameManager", lobby.code)
 
     def _inspect_game_manager(self, lobby: Lobby, player: Player, part: MessageReader) -> None:
-        """Värden har ändrat något i GameManager. Del nummer 4 (eller 5) är inställningarna."""
+        """The host changed something in GameManager. Part number 4 (or 5) is the settings."""
         for component in part.messages():
             if component.tag != lobby.options_part:
                 continue
             new_options = read_options(component)
-            changes = differences(lobby.options, new_options)
-            for change in changes:
-                log.info("%s: %s ändrade %s", lobby.code, player.name, change)
+            changes = differences(lobby.options, new_options)  # in English, for plugins
+            for change in differences(lobby.options, new_options, translate=True):
+                log.info("%s: %s changed %s", lobby.code, player.name, change)
             lobby.options = new_options
             if changes:
                 self.plugins.fire("on_settings_changed", lobby, player, changes)
@@ -521,15 +532,15 @@ class Game:
     def _inspect_rpc(self, lobby: Lobby, player: Player, part: MessageReader) -> Optional[bool]:
         net_id = part.read_packed_uint32()
         call = part.read_byte()
-        later = self._after_forward.append  # körs när meddelandet har skickats vidare
+        later = self._after_forward.append  # runs when the message has been passed on
         fire = self.plugins.fire
 
         if call == protocol.RPC_SEND_CHAT:
             text = part.read_string()
             if fire("on_chat", lobby, player, text) is False:
-                log.info("%s chatt  %s: %s  (stoppat av ett plugin)", lobby.code, player.name, text)
+                log.info("%s chat  %s: %s  (stopped by a plugin)", lobby.code, player.name, text)
                 return False
-            log.info("%s chatt  %s: %s", lobby.code, player.name, text)
+            log.info("%s chat  %s: %s", lobby.code, player.name, text)
 
         elif call == protocol.RPC_SET_NAME:
             info = lobby.server_objects.get(part.read_uint32()) or lobby.info_for_control(net_id)
@@ -556,7 +567,7 @@ class Game:
         elif call == protocol.RPC_SET_COLOR:
             info_net_id = part.read_uint32()
             color = part.read_byte()
-            # Färgen gäller spelarinfon med det numret (säkrast), annars gubbens ägare.
+            # The color is for the player info with that number (safest), otherwise the character's owner.
             info = lobby.server_objects.get(info_net_id) or lobby.info_for_control(net_id)
             if info is not None:
                 info.color = color
@@ -564,7 +575,7 @@ class Game:
             target = lobby.players.get(owner) if owner is not None else None
             if target is not None and lobby.colors.get(target.client_id) != color:
                 lobby.colors[target.client_id] = color
-                log.info("%s: %s har färgen %s", lobby.code, target.name, protocol.COLORS.get(color, f"nr {color}"))
+                log.info("%s: %s has the color %s", lobby.code, target.name, protocol.COLORS.get(color, f"no. {color}"))
                 later(lambda: fire("on_color_changed", lobby, target, target.color))
 
         elif call == protocol.RPC_SET_ROLE:
@@ -574,10 +585,10 @@ class Game:
                 lobby.round.roles[target.client_id] = role
 
         elif call == protocol.RPC_CHECK_MURDER:
-            # Spelet frågar SERVERN om en impostor får döda. Servern bestämmer
-            # och skickar MurderPlayer till alla (så gör Among Us egna servrar).
+            # The game asks the SERVER whether an impostor may kill. The server decides
+            # and sends MurderPlayer to everyone (that's what Among Us's own servers do).
             if lobby.host_authority:
-                return None  # värden har ett mod och bestämmer själv
+                return None  # the host has a mod and decides by itself
             target_net_id = part.read_packed_uint32()
             later(lambda: self._server_murder(lobby, player, net_id, target_net_id))
             return False
@@ -606,11 +617,11 @@ class Game:
             if result & protocol.MURDER_SUCCEEDED and victim is not None:
                 lobby.round.dead.add(victim_net_id)
                 lobby.round.deaths.append((victim.name, killer.name if killer else "?"))
-                # Vem som dödade skrivs inte ut nu, då skulle loggen avslöja impostorn.
-                log.info("%s: %s har dödats! (%d döda)", lobby.code, victim.name, len(lobby.round.deaths))
+                # Who killed isn't written now, then the log would give away the impostor.
+                log.info("%s: %s has been killed! (%d dead)", lobby.code, victim.name, len(lobby.round.deaths))
                 later(lambda: fire("on_player_killed", lobby, killer, victim))
             elif result & protocol.MURDER_FAILED_PROTECTED and victim is not None:
-                log.info("%s: någon försökte döda %s, men en Guardian Angel skyddade", lobby.code, victim.name)
+                log.info("%s: someone tried to kill %s, but a Guardian Angel protected them", lobby.code, victim.name)
 
         elif call == protocol.RPC_EXILED:
             lobby.round.dead.add(net_id)
@@ -622,32 +633,32 @@ class Game:
             reporter = lobby.player_by_control(net_id)
             body_id = part.read_byte()
             body = lobby.player_by_player_id(body_id) if body_id != protocol.NO_PLAYER else None
-            who = reporter.name if reporter else "Någon"
+            who = reporter.name if reporter else tr("Someone")
             lobby.round.meetings += 1
             lobby.round.in_meeting = True
             if body is None:
-                log.info("%s: MÖTE! %s tryckte på nödknappen", lobby.code, who)
+                log.info("%s: MEETING! %s pressed the emergency button", lobby.code, who)
             else:
-                log.info("%s: MÖTE! %s hittade %s", lobby.code, who, body.name)
+                log.info("%s: MEETING! %s found %s", lobby.code, who, body.name)
             later(lambda: fire("on_meeting_started", lobby, reporter, body))
 
         elif call == protocol.RPC_CAST_VOTE:
             voter = lobby.player_by_player_id(part.read_byte())
-            part.read_byte()  # vem rösten gäller, avslöjas inte i loggen
+            part.read_byte()  # who the vote is for, not given away in the log
             if voter is not None:
-                log.info("%s: %s har röstat", lobby.code, voter.name)
+                log.info("%s: %s has voted", lobby.code, voter.name)
 
         elif call == protocol.RPC_VOTING_COMPLETE:
             for _ in range(part.read_packed_uint32()):
-                part.read_message()  # hur varje spelare röstade
+                part.read_message()  # how each player voted
             exiled_id = part.read_byte()
             tie = part.read_bool()
             exiled = lobby.player_by_player_id(exiled_id) if exiled_id != protocol.NO_PLAYER else None
             if exiled is not None:
                 lobby.round.exiled.append(exiled.name)
-                log.info("%s: %s röstades ut", lobby.code, exiled.name)
+                log.info("%s: %s was voted out", lobby.code, exiled.name)
             else:
-                log.info("%s: ingen röstades ut%s", lobby.code, " (oavgjort)" if tie else "")
+                log.info("%s: nobody was voted out%s", lobby.code, tr(" (tie)") if tie else "")
             later(lambda: fire("on_player_exiled", lobby, exiled))
 
         elif call == protocol.RPC_COMPLETE_TASK:
@@ -656,7 +667,7 @@ class Game:
         return None
 
     def handle_packed_game_data_to(self, connection: Connection, message: MessageReader, reliable: bool) -> None:
-        """Värden kan skicka flera "till en spelare"-meddelanden i ett paket."""
+        """The host can send several "to one player" messages in one packet."""
         player = self._player(connection)
         if player is None or player.client_id != player.lobby.host_id:
             return
@@ -677,13 +688,13 @@ class Game:
         self._run_after_forward()
 
     # =====================================================================
-    # Saker som servern bestämmer: dödande och Phantom
+    # Things the server decides: killing and the Phantom
     # =====================================================================
 
     def _server_murder(self, lobby: Lobby, sender: Player, killer_net_id: int, victim_net_id: int) -> None:
         """
-        En impostor har tryckt på "Kill". Among Us låter servern (inte värden)
-        kontrollera att det är okej, och sedan berätta för alla att någon dog.
+        An impostor has pressed "Kill". Among Us lets the server (not the host)
+        check that it's okay, and then tell everyone that someone died.
         """
         killer = lobby.player_by_control(killer_net_id)
         victim = lobby.player_by_control(victim_net_id)
@@ -691,17 +702,17 @@ class Game:
         if killer is None or victim is None or lobby.state != GameState.STARTED:
             return
         if killer.client_id != sender.client_id:
-            log.warning("%s försökte döda med någon annans gubbe, ignoreras", sender.name)
+            log.warning("%s tried to kill with someone else's character, ignored", sender.name)
             return
         if killer_net_id in r.dead or victim_net_id in r.dead or r.in_meeting:
-            return  # t.ex. om man trycker på Kill flera gånger snabbt
+            return  # for example if you press Kill several times quickly
         role = r.roles.get(killer.client_id)
         if role in protocol.ROLES and role not in protocol.KILLER_ROLES:
-            # (En roll vi inte känner till, t.ex. från en ny spelversion, får döda.)
-            log.warning("%s försökte döda men är inte impostor, ignoreras", sender.name)
+            # (A role we don't know, for example from a new game version, may kill.)
+            log.warning("%s tried to kill but is not an impostor, ignored", sender.name)
             return
         if r.roles.get(victim.client_id) in protocol.IMPOSTOR_ROLES:
-            return  # impostors kan inte döda varandra
+            return  # impostors can't kill each other
 
         result = protocol.MURDER_SUCCEEDED
         protected_at = r.protected.pop(victim_net_id, None)
@@ -713,7 +724,7 @@ class Game:
         self._server_rpc(lobby, sender, killer_net_id, protocol.RPC_MURDER_PLAYER, args)
 
     def _server_phantom(self, lobby: Lobby, sender: Player, net_id: int, call: int, args: bytes) -> None:
-        """En Phantom vill bli osynlig eller synas igen. Servern säger ja."""
+        """A Phantom wants to vanish or appear again. The server says yes."""
         owner = lobby.player_by_control(net_id)
         if owner is None or owner.client_id != sender.client_id or lobby.state != GameState.STARTED:
             return
@@ -722,11 +733,11 @@ class Game:
         self._server_rpc(lobby, sender, net_id, call, args)
 
     def _server_rpc(self, lobby: Lobby, sender: Player, net_id: int, call: int, args: bytes) -> None:
-        """Skickar ett RPC från servern till ALLA i spelet (även den som frågade)."""
+        """Sends an RPC from the server to EVERYONE in the game (also the one who asked)."""
         rpc = MessageWriter().start_message(protocol.GameDataTag.RPC)
         rpc.write_packed_uint32(net_id).write_byte(call).write_bytes(args).end_message()
         rpc_bytes = rpc.to_bytes()
-        # Låt servern själv titta på det (loggen, plugins och bots), som om det kom från spelet.
+        # Let the server look at it itself (the log, plugins and bots), as if it came from the game.
         part = MessageReader(rpc_bytes).read_message()
         self._inspect_rpc(lobby, sender, part)
         w = MessageWriter().start_message(protocol.GAME_DATA).write_int32(lobby.code_int)
@@ -735,7 +746,7 @@ class Game:
         self._run_after_forward()
 
     # =====================================================================
-    # Lämna spel och byta värd
+    # Leaving games and changing host
     # =====================================================================
 
     def remove_player(self, lobby: Lobby, client_id: int, reason: int) -> None:
@@ -744,7 +755,7 @@ class Game:
             return
         player.connection.player = None
         lobby.colors.pop(client_id, None)
-        log.info("%s lämnade %s", player.name, lobby.code)
+        log.info("%s left %s", player.name, lobby.code)
 
         if client_id == lobby.host_id:
             self._migrate_host(lobby)
@@ -752,12 +763,12 @@ class Game:
         self.plugins.fire("on_player_left", lobby, player)
 
         if not any(not p.is_bot for p in lobby.players.values()):
-            # Bara bots (eller ingen alls) kvar: stäng spelet.
+            # Only bots (or nobody at all) left: close the game.
             for bot in list(lobby.players.values()):
                 bot.connection.close()
                 bot.connection.player = None
             lobby.players.clear()
-            log.info("%s är tomt och har tagits bort", lobby.code)
+            log.info("%s is empty and has been removed", lobby.code)
             self.lobbies.remove(lobby)
             return
 
@@ -770,13 +781,13 @@ class Game:
         lobby.send_to_all(w.to_bytes(), except_id=client_id)
 
     def _migrate_host(self, lobby: Lobby) -> None:
-        # En bot kan inte vara värd, så välj första riktiga spelaren.
+        # A bot can't be host, so pick the first real player.
         new_host = next((p for p in lobby.players.values() if not p.is_bot), None)
         if new_host is None:
             lobby.host_id = -1
             return
         lobby.host_id = new_host.client_id
-        log.info("%s: %s är ny värd", lobby.code, new_host.name)
+        log.info("%s: %s is the new host", lobby.code, new_host.name)
         self.plugins.fire("on_host_changed", lobby, new_host)
         if lobby.state == GameState.ENDED and new_host.limbo == Limbo.WAITING_FOR_HOST:
             lobby.state = GameState.NOT_STARTED
@@ -784,20 +795,20 @@ class Game:
             self._let_waiting_players_in(lobby)
 
     def _warn_about_missing_udp(self) -> None:
-        """Om någon hämtat en token men aldrig anslutit: säg till, det är ett vanligt fel."""
+        """If someone fetched a token but never connected: say so, it's a common problem."""
         now = time.monotonic()
         for name, (when, who) in list(self.lobbies.waiting_for_udp.items()):
-            if now - when > 30:  # via mobildata kan det ta 10-15 sekunder
+            if now - when > 30:  # over mobile data it can take 10-15 seconds
                 del self.lobbies.waiting_for_udp[name]
                 log.warning(
-                    "%s (%s) nådde servern via HTTPS men anslöt aldrig till spelet via UDP.",
+                    "%s (%s) reached the server over HTTPS but never connected to the game over UDP.",
                     name,
                     who,
                 )
                 log.warning(
-                    "  Om ni spelar via playit.gg: vänta tills rutan PLAYIT ÄR KLART! har visats. "
-                    "Annars: kolla att enheten är på samma wifi som Macen (på iPhone: "
-                    "Inställningar > Integritet och säkerhet > Lokalt nätverk > slå på Among Us)."
+                    "  If you play through playit.gg: wait until the box PLAYIT IS READY! has been shown. "
+                    "Otherwise: check that the device is on the same wifi as the Mac (on iPhone: "
+                    "Settings > Privacy & Security > Local Network > turn on Among Us)."
                 )
 
     # =====================================================================
@@ -824,18 +835,18 @@ class Game:
         return player
 
     async def cleanup_loop(self) -> None:
-        """Tar bort spel som skapades men där ingen gick med."""
+        """Removes games that were created but that nobody joined."""
         loop = asyncio.get_event_loop()
         while True:
             await asyncio.sleep(5)
             self._warn_about_missing_udp()
             for lobby in self.lobbies.all():
                 if not lobby.players and loop.time() - lobby.created_at > EMPTY_LOBBY_TIMEOUT:
-                    log.debug("Tar bort tomma spelet %s", lobby.code)
+                    log.debug("Removing the empty game %s", lobby.code)
                     self.lobbies.remove(lobby)
 
     # =====================================================================
-    # Hjälpfunktioner
+    # Helpers
     # =====================================================================
 
     @staticmethod
@@ -844,7 +855,7 @@ class Game:
         return player if isinstance(player, Player) else None
 
     def _host_check(self, connection: Connection, message: MessageReader):
-        """Kollar att avsändaren är värd i rätt spel. Läser spelkoden ur meddelandet."""
+        """Checks that the sender is host in the right game. Reads the game code from the message."""
         player = self._player(connection)
         if player is None:
             return None, None
@@ -853,7 +864,7 @@ class Game:
             return None, None
         if player.client_id != lobby.host_id:
             log.warning(
-                "%s skickade %s, men bara värden får göra det",
+                "%s sent %s, but only the host may do that",
                 player.name,
                 protocol.message_name(message.tag or -1),
             )
@@ -862,7 +873,7 @@ class Game:
 
     @staticmethod
     def _forward(message: MessageReader) -> bytes:
-        """Gör om ett mottaget meddelande till bytes som kan skickas vidare oförändrat."""
+        """Turns a received message into bytes that can be passed on unchanged."""
         return MessageWriter().write_message(message).to_bytes()
 
     @staticmethod
@@ -874,22 +885,22 @@ class Game:
             w.write_packed_int32(other.client_id)
             w.write_string(other.name)
             other.write_platform(w)
-            w.write_packed_uint32(1)  # nivå
-            w.write_string("")  # vänkod
-            w.write_string("")  # konto-id
+            w.write_packed_uint32(1)  # level
+            w.write_string("")  # friend code
+            w.write_string("")  # account id
         w.end_message()
         return w.to_bytes()
 
     @staticmethod
     def _join_game_message(lobby: Lobby, player: Player) -> bytes:
-        """Berättar för de andra i lobbyn att `player` har kommit."""
+        """Tells the others in the lobby that `player` has arrived."""
         w = MessageWriter().start_message(protocol.JOIN_GAME)
         w.write_int32(lobby.code_int).write_int32(player.client_id).write_int32(lobby.host_id)
         w.write_string(player.name)
         player.write_platform(w)
-        w.write_packed_uint32(1)  # nivå
-        w.write_string("")  # vänkod
-        w.write_string("")  # konto-id
+        w.write_packed_uint32(1)  # level
+        w.write_string("")  # friend code
+        w.write_string("")  # account id
         w.end_message()
         return w.to_bytes()
 

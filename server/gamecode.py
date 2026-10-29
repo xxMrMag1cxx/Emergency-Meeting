@@ -1,10 +1,10 @@
 """
-Spelkoder, t.ex. "ABCDEF".
+Game codes, for example "ABCDEF".
 
-Spelet visar koden som sex bokstäver, men skickar den som ett enda tal
-(int32) över nätverket. Här finns funktioner för att gå fram och tillbaka.
+The game shows the code as six letters, but sends it as a single number
+(int32) over the network. Here are functions to go back and forth.
 
-Bokstäverna blandas med en speciell ordning (V2) som Among Us hittade på.
+The letters are mixed with a special order (V2) that Among Us came up with.
 """
 
 from __future__ import annotations
@@ -12,12 +12,12 @@ from __future__ import annotations
 import secrets
 
 ALPHABET = "QWXRTYLPESDFGHUJKZOCVBINMA"
-# För varje bokstav A-Z: vilken plats den har i ALPHABET.
+# For every letter A-Z: which place it has in ALPHABET.
 LETTER_INDEX = {letter: ALPHABET.index(letter) for letter in ALPHABET}
 
 
 def code_to_int(code: str) -> int:
-    """'ABCDEF' -> talet som spelet skickar. Returnerar -1 om koden är ogiltig."""
+    """'ABCDEF' -> the number the game sends. Returns -1 if the code is invalid."""
     code = code.upper()
     if len(code) != 6 or any(c not in LETTER_INDEX for c in code):
         return -1
@@ -25,12 +25,12 @@ def code_to_int(code: str) -> int:
     one = (a + 26 * b) & 0x3FF
     two = c + 26 * (d + 26 * (e + 26 * f))
     value = one | ((two << 10) & 0x3FFFFC00) | 0x80000000
-    # Gör om till ett negativt tal precis som int32 i spelet.
+    # Turn it into a negative number just like int32 in the game.
     return value - (1 << 32)
 
 
 def int_to_code(value: int) -> str:
-    """Talet från spelet -> 'ABCDEF'."""
+    """The number from the game -> 'ABCDEF'."""
     value &= 0xFFFFFFFF
     a = value & 0x3FF
     b = (value >> 10) & 0xFFFFF

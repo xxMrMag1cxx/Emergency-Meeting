@@ -1,25 +1,29 @@
 """
-Pluginsystemet: laddar plugins från mappen plugins/ och anropar dem
-när saker händer på servern.
+The plugin system: loads plugins from the plugins/ folder and calls them
+when things happen on the server.
 
-Ett plugin är en vanlig Python-fil med funktioner som har särskilda namn,
-till exempel:
+A plugin is an ordinary Python file with functions that have special names,
+for example:
 
     def on_player_spawned(lobby, player):
-        player.send_chat("Välkommen!")
+        player.send_chat("Welcome!")
 
-Servern letar efter plugins så här i mappen plugins/:
+The server looks for plugins like this in the plugins/ folder:
 
-  - halsning.py           en fil = ett plugin
-  - mitt_plugin/          en mapp med __init__.py = ett plugin
-  - Mina-Plugins-main/    en mapp utan __init__.py = en samling plugins,
-                          varje .py-fil i den är ett eget plugin
-                          (bra om man laddar ner ett helt plugin-repo)
+  - greeting.py           a file = a plugin
+  - my_plugin/            a folder with __init__.py = a plugin
+  - My-Plugins-main/      a folder without __init__.py = a collection of plugins,
+                          every .py file in it is its own plugin
+                          (good if you download a whole plugin repo)
 
-Filer och mappar som börjar med _ hoppas över. Byt namn på
-"_tarning.py" till "tarning.py" för att slå på det pluginet.
+Files and folders that start with _ are skipped. Rename "_dice.py" to
+"dice.py" to turn that plugin on.
 
-Se plugins/README.md för alla händelser och vad ett plugin kan göra.
+A plugin can also have translations for the server's terminal window:
+
+    TRANSLATIONS = {"sv": {"Welcome!": "Välkommen!"}}
+
+See plugins/README.md for all events and what a plugin can do.
 """
 
 from __future__ import annotations
@@ -34,13 +38,15 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, List
 
+from . import i18n
 from .config import PROJECT_DIR
+from .i18n import tr
 
 log = logging.getLogger("plugin")
 
 PLUGIN_DIR = PROJECT_DIR / "plugins"
 
-# Alla händelser som ett plugin kan lyssna på. Se plugins/README.md.
+# All events a plugin can listen to. See plugins/README.md.
 EVENTS = (
     "on_server_started",
     "on_game_created",
@@ -78,15 +84,15 @@ class LoadedPlugin:
         if self.version:
             text += f" {self.version}"
         if self.author:
-            text += f" av {self.author}"
+            text += tr(" by {author}", author=self.author)
         return text
 
 
 @dataclass
 class FailedPlugin:
     file: str
-    error: str  # kort felmeddelande
-    details: str  # hela felet (traceback), för att kunna hitta vad som är fel
+    error: str  # short error message
+    details: str  # the whole error (traceback), to be able to find what's wrong
 
 
 class PluginManager:
@@ -96,12 +102,12 @@ class PluginManager:
         self.failed: List[FailedPlugin] = []
         self.enabled = True
 
-    # --- Ladda -----------------------------------------------------------
+    # --- Load ------------------------------------------------------------
 
     def load_all(self) -> None:
-        """Laddar alla plugins. Vad som laddades visas sedan med summary()."""
+        """Loads all plugins. What was loaded is shown afterwards with summary()."""
         if not self.folder.is_dir():
-            log.debug("Ingen plugins-mapp hittades, kör utan plugins.")
+            log.debug("No plugins folder was found, running without plugins.")
             return
 
         for entry in sorted(self.folder.iterdir(), key=lambda p: p.name.lower()):
@@ -113,7 +119,7 @@ class PluginManager:
                 if (entry / "__init__.py").exists():
                     self._load(entry / "__init__.py", package_dir=entry)
                 else:
-                    # En samling plugins, t.ex. ett nedladdat plugin-repo.
+                    # A collection of plugins, for example a downloaded plugin repo.
                     for file in sorted(entry.glob("*.py"), key=lambda p: p.name.lower()):
                         if not self._skip(file):
                             self._load(file)
@@ -133,7 +139,7 @@ class PluginManager:
                 submodule_search_locations=[str(package_dir)] if package_dir else None,
             )
             if spec is None or spec.loader is None:
-                raise ImportError("kunde inte läsa filen")
+                raise ImportError("could not read the file")
             module = importlib.util.module_from_spec(spec)
             sys.modules[module_name] = module
             spec.loader.exec_module(module)
@@ -163,50 +169,67 @@ class PluginManager:
             for attr in dir(module)
             if attr.startswith("on_") and attr not in EVENTS and callable(getattr(module, attr))
         ]
+        self._add_translations(plugin)
         self.plugins.append(plugin)
-        log.debug("Laddade pluginet %s från %s", plugin, source)
+        log.debug("Loaded the plugin %s from %s", plugin, source)
         if not events:
-            plugin.warnings.append("lyssnar inte på några händelser")
+            plugin.warnings.append(tr("doesn't listen to any events"))
         for attr in unknown:
-            plugin.warnings.append(f"funktionen {attr} är ingen händelse som finns")
+            plugin.warnings.append(tr("the function {name} isn't an event that exists", name=attr))
 
-    # --- Visa vad som laddades -------------------------------------------
+    @staticmethod
+    def _add_translations(plugin: LoadedPlugin) -> None:
+        """TRANSLATIONS = {"sv": {"English text": "Svensk text"}} in a plugin."""
+        translations = getattr(plugin.module, "TRANSLATIONS", None)
+        if not isinstance(translations, dict):
+            return
+        for code, texts in translations.items():
+            if isinstance(texts, dict):
+                i18n.add_translations(str(code), texts)
+
+    # --- Show what was loaded --------------------------------------------
 
     def summary(self) -> List[str]:
-        """Raderna i rutan LADDAR PLUGINS som visas när servern har startat."""
+        """The lines in the box LOADING PLUGINS that is shown when the server has started."""
         if not self.enabled:
-            return ["Plugins är avstängda i config.json."]
+            return [tr("Plugins are turned off in config.json.")]
 
         count = len(self.plugins)
-        lines = [f"Laddat {count} plugin{'s' if count != 1 else ''}..."]
+        if count == 1:
+            lines = [tr("Loaded 1 plugin...")]
+        else:
+            lines = [tr("Loaded {count} plugins...", count=count)]
         for plugin in self.plugins:
             lines.append(f"  - {plugin}")
             if plugin.description:
-                lines.append(f"      {plugin.description}")
+                lines.append(f"      {tr(plugin.description)}")
             for warning in plugin.warnings:
-                lines.append(f"      Obs: {warning}")
+                lines.append("      " + tr("Note: {warning}", warning=warning))
         if count == 0:
-            lines.append("  Lägg plugins i mappen plugins/ (se plugins/README.md).")
+            lines.append(tr("  Put plugins in the plugins/ folder (see plugins/README.md)."))
 
         if self.failed:
             lines.append("")
-            lines.append(f"Kunde inte ladda {len(self.failed)} plugin{'s' if len(self.failed) != 1 else ''}:")
+            if len(self.failed) == 1:
+                lines.append(tr("Could not load 1 plugin:"))
+            else:
+                lines.append(tr("Could not load {count} plugins:", count=len(self.failed)))
             for failure in self.failed:
                 lines.append(f"  - {failure.file}: {failure.error}")
-            lines.append("  (hela felet står nedanför)")
+            lines.append(tr("  (the whole error is below)"))
         return lines
 
     def log_failures(self) -> None:
         for failure in self.failed:
-            log.error("Fel i %s:\n%s", failure.file, failure.details.rstrip())
+            log.error("Error in %s:\n%s", failure.file, failure.details.rstrip())
 
-    # --- Anropa ----------------------------------------------------------
+    # --- Call ------------------------------------------------------------
 
     def fire(self, event: str, *args: Any) -> bool:
         """
-        Anropar `event` i alla plugins som har den funktionen.
-        Returnerar False om något plugin returnerade False ("stoppa det här"),
-        annars True.
+        Calls `event` in all plugins that have that function.
+        Returns False if some plugin returned False ("stop this"),
+        otherwise True.
         """
         allowed = True
         for plugin in self.plugins:
@@ -217,5 +240,5 @@ class PluginManager:
                 if handler(*args) is False:
                     allowed = False
             except Exception:
-                log.exception("Fel i pluginet %s (%s). Servern fortsätter som vanligt.", plugin.name, event)
+                log.exception("Error in the plugin %s (%s). The server continues as usual.", plugin.name, event)
         return allowed

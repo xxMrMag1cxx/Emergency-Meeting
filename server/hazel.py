@@ -1,15 +1,15 @@
 """
-Hazel: nätverkslagret som Among Us använder ovanpå UDP.
+Hazel: the network layer Among Us uses on top of UDP.
 
-UDP är snabbt, men paket kan försvinna på vägen. Hazel löser det så här:
+UDP is fast, but packets can get lost on the way. Hazel solves it like this:
 
-  - Viktiga paket ("reliable") får ett nummer. Mottagaren svarar med ett
-    kvitto (ack) med samma nummer. Kommer inget kvitto skickas paketet igen.
-  - Mindre viktiga paket ("unreliable") skickas bara en gång.
-  - Spelet skickar "ping" då och då för att se att servern lever.
+  - Important packets ("reliable") get a number. The receiver answers with a
+    receipt (ack) with the same number. If no receipt comes, the packet is sent again.
+  - Less important packets ("unreliable") are only sent once.
+  - The game sends a "ping" now and then to check that the server is alive.
 
-Den här filen tar hand om allt det, så att resten av servern bara
-behöver bry sig om själva meddelandena.
+This file takes care of all of that, so that the rest of the server only
+has to care about the messages themselves.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ TIMEOUT_SECONDS = 15.0
 
 
 class Connection:
-    """En ansluten spelare."""
+    """A connected player."""
 
     def __init__(self, server: "HazelServer", address: Address, handshake: Optional[Handshake]):
         self.server = server
@@ -44,19 +44,19 @@ class Connection:
         self.last_seen = time.monotonic()
         self.connected = True
 
-        # Fylls i av spellogiken: spelarens nummer och vilken lobby hen är i.
+        # Filled in by the game logic: the player's number and which lobby they are in.
         self.client_id = 0
         self.player: Optional[object] = None
 
-        # Kommer ihåg de senaste meddelandena, om något går fel.
+        # Remembers the latest messages, in case something goes wrong.
         self.recorder = FlightRecorder()
         self._unknown_kinds_logged: Set[int] = set()
 
         self._next_id = 1
-        # Paketnummer vi redan har tagit emot (för att upptäcka dubbletter).
+        # Packet numbers we have already received (to spot duplicates).
         self._received_ids: Set[int] = set()
         self._received_order: Deque[int] = deque()
-        # Paket vi har skickat men inte fått kvitto på: id -> [data, tid, försök]
+        # Packets we have sent but not got a receipt for: id -> [data, time, tries]
         self._pending: Dict[int, list] = {}
 
     @property
@@ -69,7 +69,7 @@ class Connection:
     # --- Ta emot ---------------------------------------------------------
 
     def remember_id(self, packet_id: int) -> bool:
-        """Sparar ett paketnummer. Returnerar False om vi redan sett det."""
+        """Saves a packet number. Returns False if we have already seen it."""
         if packet_id in self._received_ids:
             return False
         self._received_ids.add(packet_id)
@@ -79,7 +79,7 @@ class Connection:
         return True
 
     def send_ack(self, packet_id: int) -> None:
-        # Sista byten berättar vilka av de 8 föregående paketen vi också har fått.
+        # The last byte tells which of the 8 previous packets we have also received.
         recent = 0
         for i in range(1, 9):
             if ((packet_id - i) & 0xFFFF) in self._received_ids:
@@ -91,20 +91,20 @@ class Connection:
 
     def handle_ack(self, packet_id: int, recent: Optional[int]) -> None:
         if self._pending.pop(packet_id, None) is not None:
-            self.recorder.note_text("in", f"kvitto för vårt paket #{packet_id}")
+            self.recorder.note_text("in", f"receipt for our packet #{packet_id}")
         if recent is not None:
             for i in range(1, 9):
                 if recent & (1 << (i - 1)):
                     self._pending.pop((packet_id - i) & 0xFFFF, None)
 
-    # --- Skicka ----------------------------------------------------------
+    # --- Send ------------------------------------------------------------
 
     def send_reliable(self, payload: bytes) -> None:
         packet_id = self._next_id
         self._next_id = (self._next_id + 1) & 0xFFFF
         packet = bytes([protocol.RELIABLE, packet_id >> 8, packet_id & 0xFF]) + payload
         self._pending[packet_id] = [packet, time.monotonic(), 0]
-        self.recorder.note("ut", payload, packet_id)
+        self.recorder.note("out", payload, packet_id)
         self.server.send_raw(packet, self.address)
 
     def send_unreliable(self, payload: bytes) -> None:
@@ -113,9 +113,9 @@ class Connection:
 
     def disconnect(self, reason: int = protocol.DisconnectReason.EXIT_GAME, message: str = "") -> None:
         """
-        Kopplar bort spelaren. Med reason=CUSTOM visas `message` i spelet.
-        Paketet ser ut så här:
-            [0x09] [1 = "det finns en anledning"] [delmeddelande: anledning (+ text)]
+        Disconnects the player. With reason=CUSTOM, `message` is shown in the game.
+        The packet looks like this:
+            [0x09] [1 = "there is a reason"] [sub-message: reason (+ text)]
         """
         if not self.connected:
             return
@@ -128,7 +128,7 @@ class Connection:
             writer.write_string(message)
         writer.end_message()
         self.server.send_raw(writer.to_bytes(), self.address)
-        self.server.forget(self, "servern kopplade bort spelaren")
+        self.server.forget(self, "the server disconnected the player")
 
     def resend_lost_packets(self, now: float) -> None:
         for packet_id, entry in list(self._pending.items()):
@@ -136,18 +136,18 @@ class Connection:
             if now - sent_at < RESEND_AFTER_SECONDS:
                 continue
             if tries >= MAX_RESENDS:
-                log.warning("%s svarar inte på paket %d, ger upp", self, packet_id)
-                self.recorder.note_text("!!", f"spelet svarade aldrig på vårt paket {packet_id}")
+                log.warning("%s doesn't answer packet %d, giving up", self, packet_id)
+                self.recorder.note_text("!!", f"the game never answered our packet {packet_id}")
                 self._pending.pop(packet_id, None)
                 continue
             entry[1] = now
             entry[2] = tries + 1
-            self.recorder.note_text("ut", f"skickar om paket #{packet_id} (försök {tries + 1})")
+            self.recorder.note_text("out", f"sending packet #{packet_id} again (try {tries + 1})")
             self.server.send_raw(packet, self.address)
 
 
 class HazelServer(asyncio.DatagramProtocol):
-    """Lyssnar på UDP och håller koll på alla anslutna spelare."""
+    """Listens on UDP and keeps track of all connected players."""
 
     def __init__(
         self,
@@ -163,7 +163,7 @@ class HazelServer(asyncio.DatagramProtocol):
         self.transport: Optional[asyncio.DatagramTransport] = None
         self.connections: Dict[Address, Connection] = {}
 
-    # --- asyncio anropar dessa automatiskt -------------------------------
+    # --- asyncio calls these automatically -------------------------------
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
         self.transport = transport  # type: ignore[assignment]
@@ -171,10 +171,10 @@ class HazelServer(asyncio.DatagramProtocol):
     def datagram_received(self, data: bytes, address: Address) -> None:
         try:
             self._handle_packet(data, address)
-        except Exception:  # en trasig spelare ska inte krascha hela servern
-            log.exception("Fel när ett paket från %s hanterades", address)
+        except Exception:  # a broken player must not crash the whole server
+            log.exception("Error while handling a packet from %s", address)
 
-    # --- Paket in --------------------------------------------------------
+    # --- Packets in --------------------------------------------------------
 
     def _handle_packet(self, data: bytes, address: Address) -> None:
         if not data:
@@ -196,7 +196,7 @@ class HazelServer(asyncio.DatagramProtocol):
             return
 
         if connection is None:
-            # Vi känner inte den här avsändaren och det är inget Hello. Ignorera.
+            # We don't know this sender and it's not a Hello. Ignore it.
             return
 
         connection.last_seen = time.monotonic()
@@ -210,7 +210,7 @@ class HazelServer(asyncio.DatagramProtocol):
                 connection.recorder.note("in", data[3:], packet_id)
                 self._dispatch(connection, data[3:], reliable=True)
             else:
-                connection.recorder.note_text("in", f"#{packet_id} igen (spelet skickade om, nytt kvitto skickat)")
+                connection.recorder.note_text("in", f"#{packet_id} again (the game resent it, new receipt sent)")
 
         elif kind == protocol.UNRELIABLE:
             connection.recorder.unreliable_in += 1
@@ -220,7 +220,7 @@ class HazelServer(asyncio.DatagramProtocol):
             packet_id = (data[1] << 8) | data[2]
             connection.remember_id(packet_id)
             connection.send_ack(packet_id)
-            connection.recorder.note_text("in", f"ping #{packet_id} -> kvitto skickat")
+            connection.recorder.note_text("in", f"ping #{packet_id} -> ack sent")
 
         elif kind == protocol.ACK and len(data) >= 3:
             packet_id = (data[1] << 8) | data[2]
@@ -233,33 +233,33 @@ class HazelServer(asyncio.DatagramProtocol):
             self.forget(connection, why)
 
         elif kind not in connection._unknown_kinds_logged:
-            # Något vi inte förstår. Skriv ut det en gång, det kan förklara problem.
+            # Something we don't understand. Write it once, it can explain problems.
             connection._unknown_kinds_logged.add(kind)
             log.warning(
-                "%s skickade en pakettyp som servern inte känner till (0x%02x, %d bytes)",
+                "%s sent a packet type the server doesn't know (0x%02x, %d bytes)",
                 connection,
                 kind,
                 len(data),
             )
-            connection.recorder.note_text("in", f"okänd pakettyp 0x{kind:02x}: {data[:24].hex(' ')}")
+            connection.recorder.note_text("in", f"unknown packet type 0x{kind:02x}: {data[:24].hex(' ')}")
 
     @staticmethod
     def _disconnect_reason(data: bytes) -> str:
-        """Läser varför spelet kopplade från, om det skickade med en anledning."""
+        """Reads why the game disconnected, if it sent a reason."""
         if len(data) < 2:
-            return "spelaren lämnade"
+            return "the player left"
         try:
             reader = MessageReader(data[1:])
             if reader.read_byte() != 1:
-                return "spelaren lämnade (tvingad, utan anledning)"
+                return "the player left (forced, without a reason)"
             inner = reader.read_message()
             reason = inner.read_byte()
-            text = protocol.DISCONNECT_REASON_NAMES.get(reason, f"anledning {reason}")
+            text = protocol.DISCONNECT_REASON_NAMES.get(reason, f"reason {reason}")
             if inner.remaining:
                 text += f": {inner.read_string()}"
-            return f"spelet kopplade från: {text}"
+            return f"the game disconnected: {text}"
         except ValueError:
-            return f"spelaren lämnade ({data[1:20].hex(' ')})"
+            return f"the player left ({data[1:20].hex(' ')})"
 
     def _handle_hello(self, data: bytes, address: Address, connection: Optional[Connection]) -> None:
         if len(data) < 4:
@@ -267,7 +267,7 @@ class HazelServer(asyncio.DatagramProtocol):
         packet_id = (data[1] << 8) | data[2]
 
         if connection is not None:
-            # Samma Hello igen (vårt kvitto försvann nog). Svara bara igen.
+            # The same Hello again (our receipt probably got lost). Just answer again.
             connection.send_ack(packet_id)
             return
 
@@ -279,7 +279,7 @@ class HazelServer(asyncio.DatagramProtocol):
         connection.send_ack(packet_id)
 
         if handshake is None:
-            log.warning("Kunde inte läsa Hello-paketet från %s: %s", address, data.hex(" "))
+            log.warning("Could not read the Hello packet from %s: %s", address, data.hex(" "))
         self.on_connect(connection)
 
     def _dispatch(self, connection: Connection, payload: bytes, reliable: bool) -> None:
@@ -287,7 +287,7 @@ class HazelServer(asyncio.DatagramProtocol):
         for message in reader.messages():
             self.on_message(connection, message, reliable)
 
-    # --- Paket ut och städning ------------------------------------------
+    # --- Packets out and cleaning up ------------------------------------------
 
     def send_raw(self, data: bytes, address: Address) -> None:
         if self.transport is not None:
@@ -301,12 +301,12 @@ class HazelServer(asyncio.DatagramProtocol):
             self.on_disconnect(connection, why)
 
     async def maintenance_loop(self) -> None:
-        """Körs hela tiden: skickar om tappade paket och rensar bort tysta spelare."""
+        """Runs all the time: resends lost packets and removes quiet players."""
         while True:
             await asyncio.sleep(0.1)
             now = time.monotonic()
             for connection in list(self.connections.values()):
                 if now - connection.last_seen > TIMEOUT_SECONDS:
-                    self.forget(connection, "ingen kontakt på en stund (timeout)")
+                    self.forget(connection, "no contact for a while (timeout)")
                 else:
                     connection.resend_lost_packets(now)

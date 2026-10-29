@@ -1,13 +1,13 @@
 """
-Hjälp för att lägga till servern i Among Us.
+Help for adding the server to Among Us.
 
-Spelet kan få veta om en egen server på två sätt:
+The game can find out about a custom server in two ways:
 
-  - PC: en fil som heter regionInfo.json läggs i spelets mapp
-  - Telefon/surfplatta (och PC): en länk som börjar med amongus://
-    som öppnar spelet och lägger till servern automatiskt
+  - PC: a file called regionInfo.json is put in the game's folder
+  - Phone/tablet (and PC): a link that starts with amongus://
+    that opens the game and adds the server automatically
 
-Båda pekar på serverns HTTP-adress, t.ex.
+Both point to the server's HTTP address, for example
     https://kingston-inside-best-graphic.trycloudflare.com  (port 443)
 """
 
@@ -49,6 +49,6 @@ def app_link(server_name: str, url: str, port: int) -> str:
             "serverip": url,
             "usedtls": "false",
         },
-        quote_via=quote,  # mellanslag blir %20, inte + (annars heter servern "Emergency+Meeting")
+        quote_via=quote,  # spaces become %20, not + (otherwise the server is called "Emergency+Meeting")
     )
     return f"amongus://init?{params}"

@@ -1,14 +1,18 @@
 """
-Allt som har med Terminal-fönstret att göra:
+Everything to do with the Terminal window:
 
-  - färger (loggens rubriker, rutornas titlar, bannern högst upp)
-  - rutorna med ===== runt
-  - frågan om serverns namn första gången
-  - kommandon som man skriver i fönstret, t.ex. /help
+  - colors (the log's labels, the boxes' titles, the banner at the top)
+  - the boxes with ===== around them
+  - the questions the first time the server starts (language and name)
+  - commands you type in the window, for example /help
 
-Färgerna är ANSI-koder som Terminal på Macen förstår. De stängs av när
-utskriften inte går till ett riktigt fönster (t.ex. till en fil), när
-miljövariabeln NO_COLOR finns eller med "colors": false i config.json.
+The colors are ANSI codes that Terminal on the Mac understands. They are
+turned off when the output doesn't go to a real window (for example to a
+file), when the environment variable NO_COLOR is set, or with
+"colors": false in config.json.
+
+Text in the terminal is shown in the language chosen in config.json, see
+i18n.py.
 """
 
 from __future__ import annotations
@@ -19,46 +23,52 @@ import sys
 import threading
 from typing import Callable, Dict, List, Optional, Tuple
 
-log = logging.getLogger("konsol")
+from . import i18n
+from .i18n import tr
+
+log = logging.getLogger("console")
 
 LINE = "=" * 64
 
-# --- Färger ------------------------------------------------------------------
+# --- Colors -------------------------------------------------------------------
 #
-# Två uppsättningar färger: ljusa för mörk bakgrund och mörkare för vit
-# bakgrund (annars syns till exempel gult knappt). "auto" tittar på om
-# Macen har mörkt läge, eftersom Terminal följer det.
+# Two sets of colors: bright ones for a dark background and darker ones for
+# a white background (otherwise yellow, for example, is hard to see). "auto"
+# checks whether the Mac is in dark mode, because Terminal follows that.
 
-# Namnen på färgerna som används i koden
+# The names of the colors used in the code
 LIGHT_BLUE = "em"  # "Emergency Meeting"
-PURPLE = "name"  # serverns namn
-RED = "title"  # rutornas titlar
+PURPLE = "name"  # the server's name
+RED = "title"  # the boxes' titles
 ERROR = "error"
 GREEN = "ok"
 GRAY = "time"
 DARK_GRAY = "line"
-PLAYING = "spel"
+PLAYING = "game"
 
 PALETTES: Dict[str, Dict[str, int]] = {
     "dark": {
         "em": 117, "name": 141, "title": 203, "error": 203, "warn": 229, "ok": 120,
         "time": 244, "line": 240, "text": 252,
-        "server": 208, "spel": 214, "playit": 226, "ngrok": 81, "tunnel": 75,
-        "http": 120, "bot": 49, "plugin": 177, "konsol": 117,
+        "server": 208, "game": 214, "playit": 226, "ngrok": 81, "tunnel": 75,
+        "http": 120, "bot": 49, "plugin": 177, "console": 117,
         "config": 252, "udp": 250, "lobby": 250,
     },
     "light": {
         "em": 32, "name": 98, "title": 160, "error": 160, "warn": 130, "ok": 28,
         "time": 244, "line": 250, "text": 236,
-        "server": 166, "spel": 130, "playit": 136, "ngrok": 31, "tunnel": 25,
-        "http": 28, "bot": 29, "plugin": 127, "konsol": 32,
+        "server": 166, "game": 130, "playit": 136, "ngrok": 31, "tunnel": 25,
+        "http": 28, "bot": 29, "plugin": 127, "console": 32,
         "config": 238, "udp": 240, "lobby": 240,
     },
 }
 
+# The log's labels in Swedish (the others are the same in both languages)
+SWEDISH_LABELS = {"game": "spel", "console": "konsol"}
+
 _enabled = False
 _palette = PALETTES["dark"]
-_print_lock = threading.RLock()  # så att rutor och loggrader inte blandas
+_print_lock = threading.RLock()  # so that boxes and log lines don't get mixed up
 
 
 def colors_enabled() -> bool:
@@ -77,7 +87,7 @@ def _mac_dark_mode() -> bool:
 
 
 def enable_colors(wanted: bool, theme: str = "auto") -> None:
-    """Färger bara om de är påslagna och utskriften går till ett riktigt Terminal-fönster."""
+    """Colors only if they are turned on and the output goes to a real Terminal window."""
     global _enabled, _palette
     _enabled = bool(wanted) and "NO_COLOR" not in os.environ and sys.stdout.isatty()
     if theme not in PALETTES:
@@ -86,7 +96,7 @@ def enable_colors(wanted: bool, theme: str = "auto") -> None:
 
 
 def paint(text: str, color, bold: bool = False) -> str:
-    """Färgar texten. color är ett namn ur PALETTES (t.ex. "title") eller ett färgnummer."""
+    """Colors the text. color is a name from PALETTES (for example "title") or a color number."""
     if not _enabled:
         return text
     number = _palette.get(color, 252) if isinstance(color, str) else color
@@ -98,16 +108,32 @@ def category_color(name: str) -> str:
     return name if name in _palette else (base if base in _palette else "text")
 
 
+def _translated_message(record: logging.LogRecord) -> str:
+    """The log message in the terminal's language (looked up by its format string)."""
+    if not isinstance(record.msg, str):
+        return record.getMessage()
+    message = i18n.translate(record.msg)
+    if record.args:
+        try:
+            message = message % record.args
+        except (TypeError, ValueError):
+            return record.getMessage()  # a broken translation: show the English text
+    return message
+
+
 class ColorFormatter(logging.Formatter):
-    """Loggrader som '15:01:12  spel    Blobi skapade spelet ...', med färger."""
+    """Log lines like '15:01:12  game    Blobi created the game ...', with colors."""
 
     def __init__(self) -> None:
         super().__init__(datefmt="%H:%M:%S")
 
     def format(self, record: logging.LogRecord) -> str:
         time_text = self.formatTime(record, self.datefmt)
-        name = f"{record.name:<6}"
-        message = record.getMessage()
+        label = record.name
+        if i18n.current() == "sv":
+            label = SWEDISH_LABELS.get(label, label)
+        name = f"{label:<6}"
+        message = _translated_message(record)
         if record.exc_info:
             message += "\n" + self.formatException(record.exc_info)
         if not _enabled:
@@ -120,7 +146,7 @@ class ColorFormatter(logging.Formatter):
 
 
 class _LockedHandler(logging.StreamHandler):
-    """Skriver loggrader utan att de hamnar mitt i en ruta som skrivs samtidigt."""
+    """Writes log lines without them ending up in the middle of a box being written."""
 
     def emit(self, record: logging.LogRecord) -> None:
         with _print_lock:
@@ -136,11 +162,11 @@ def setup_logging(debug: bool, colors: bool, theme: str = "auto") -> None:
     root.setLevel(logging.DEBUG if debug else logging.INFO)
 
 
-# --- Rutor och banner -------------------------------------------------------
+# --- Boxes and banner ---------------------------------------------------------
 
 
 def print_box(title: str, lines: List[str]) -> None:
-    """En ruta med ===== ovanför och under, och titeln i rött."""
+    """A box with ===== above and below, and the title in red."""
     with _print_lock:
         print()
         print(paint(LINE, DARK_GRAY))
@@ -152,7 +178,7 @@ def print_box(title: str, lines: List[str]) -> None:
 
 
 def full_name(server_name: str, colored: bool = True) -> str:
-    """'Emergency Meeting - Blobis server' (eller bara 'Emergency Meeting')."""
+    """'Emergency Meeting - Blobi's server' (or just 'Emergency Meeting')."""
     em = paint("Emergency Meeting", LIGHT_BLUE, bold=True) if colored else "Emergency Meeting"
     if not server_name or server_name.strip().lower() == "emergency meeting":
         return em
@@ -171,7 +197,7 @@ def print_banner(server_name: str, version: str, lines: List[str]) -> None:
 
 
 def output_lock() -> "threading.RLock":
-    """Håll låset för att skriva flera saker i rad utan att loggrader kommer emellan."""
+    """Hold the lock to write several things in a row without log lines in between."""
     return _print_lock
 
 
@@ -185,59 +211,134 @@ def say(text: str = "") -> None:
         print(f"  {text}" if text else "", flush=True)
 
 
-# --- Serverns namn ------------------------------------------------------------
+# --- The language (asked the first time) ------------------------------------------
+
+def choose_language(default: str = "en") -> str:
+    """
+    Lets you pick the language with the arrow keys:
+
+        Select server language:
+
+            English
+            Swedish     <-----
+
+    Returns 'en' or 'sv'. Without a real terminal the default is used.
+    """
+    options = list(i18n.LANGUAGES.items())  # [("English", "en"), ("Swedish", "sv")]
+    codes = [code for _, code in options]
+    selected = codes.index(default) if default in codes else 0
+    try:
+        import termios
+        import tty
+        fd = sys.stdin.fileno()
+        saved = termios.tcgetattr(fd)
+    except Exception:
+        return codes[selected]
+
+    width = max(len(name) for name, _ in options) + 5
+
+    def draw() -> None:
+        for index, (name, _) in enumerate(options):
+            sys.stdout.write("\x1b[2K")  # clear the line
+            if index == selected:
+                sys.stdout.write(f"    {paint(name.ljust(width), PURPLE, bold=True)}{paint('<-----', PURPLE, bold=True)}\n")
+            else:
+                sys.stdout.write(f"    {name}\n")
+        sys.stdout.flush()
+
+    print()
+    print(paint(LINE, DARK_GRAY))
+    print(f"  {paint('Select server language:', PURPLE, bold=True)}")
+    print()
+    draw()
+    print()
+    print(f"  {paint('Use the arrow keys and press Enter.', GRAY)}")
+    print(paint(LINE, DARK_GRAY), flush=True)
+    sys.stdout.write("\x1b[?25l")  # hide the cursor while choosing
+    sys.stdout.flush()
+
+    try:
+        tty.setcbreak(fd)
+        while True:
+            key = os.read(fd, 8)
+            if not key:
+                break
+            if key in (b"\r", b"\n"):
+                break
+            if key in (b"\x1b[A", b"\x1bOA", b"k", b"w") and selected > 0:
+                selected -= 1
+            elif key in (b"\x1b[B", b"\x1bOB", b"j", b"s") and selected < len(options) - 1:
+                selected += 1
+            elif key in (b"1", b"2"):
+                selected = min(int(key) - 1, len(options) - 1)
+            else:
+                continue
+            # Up past the three lines below the choices, draw them again, and back down
+            sys.stdout.write(f"\x1b[{len(options) + 3}F")
+            draw()
+            sys.stdout.write("\x1b[3E")
+            sys.stdout.flush()
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, saved)
+        sys.stdout.write("\x1b[?25h")  # show the cursor again
+        sys.stdout.flush()
+    return codes[selected]
+
+
+# --- The server's name ---------------------------------------------------------
 
 MAX_NAME_LENGTH = 32
 
 
 def clean_name(text: str) -> Tuple[str, str]:
-    """Returnerar (namn, felmeddelande). Felmeddelandet är tomt om namnet är okej."""
-    name = " ".join(text.split())  # inga dubbla mellanslag eller tabbar
+    """Returns (name, error). The error is empty if the name is okay."""
+    name = " ".join(text.split())  # no double spaces or tabs
     if not name:
-        return "", "The name can't be empty."
+        return "", tr("The name can't be empty.")
     if len(name) > MAX_NAME_LENGTH:
-        return "", f"The name can be at most {MAX_NAME_LENGTH} characters."
+        return "", tr("The name can be at most {count} characters.", count=MAX_NAME_LENGTH)
     if any(ord(c) < 32 for c in name):
-        return "", "The name can't contain special control characters."
+        return "", tr("The name can't contain special control characters.")
     return name, ""
 
 
 def ask_server_name(default: str) -> str:
-    """Frågar efter serverns namn (första gången servern startar)."""
+    """Asks for the server's name (the first time the server starts)."""
     print()
     print(paint(LINE, DARK_GRAY))
-    print(f"  {paint('NAME YOUR SERVER', RED, bold=True)}")
+    print(f"  {paint(tr('NAME YOUR SERVER'), RED, bold=True)}")
     print()
-    print(f"  The name shows up as the region in Among Us and on the join page.")
-    print(f"  Press Enter to keep {paint(default, PURPLE, bold=True)}.")
+    print(f"  {tr('The name shows up as the region in Among Us and on the join page.')}")
+    print(f"  {tr('Press Enter to keep {name}.', name=paint(default, PURPLE, bold=True))}")
     print(paint(LINE, DARK_GRAY), flush=True)
     while True:
         try:
-            text = input("  Input server name (you can change the name later): ")
+            text = input(f"  {tr('Input server name (you can change the name later):')} ")
         except EOFError:
             return default
         if not text.strip():
-            say(f"Keeping the name {paint(default, PURPLE, bold=True)}.")
+            say(tr("Keeping the name {name}.", name=paint(default, PURPLE, bold=True)))
             return default
         name, problem = clean_name(text)
         if problem:
             say(paint(problem, ERROR))
             continue
-        success("Name updated!")
+        success(tr("Name updated!"))
         return name
 
 
-# --- Kommandon ----------------------------------------------------------------
+# --- Commands ---------------------------------------------------------------------
 
-Command = Tuple[str, str, Callable[[str], None]]  # (användning, förklaring, funktion)
+Command = Tuple[str, str, Callable[[str], None]]  # (usage, explanation, function)
 
 
 class Console:
     """
-    Läser det man skriver i Terminal-fönstret medan servern kör.
+    Reads what you type in the Terminal window while the server runs.
 
-    Rader som börjar med / är kommandon. Om något i servern väntar på svar
-    (t.ex. ngrok-nyckeln) får den nästa rad i stället.
+    Lines that start with / are commands. If something in the server is
+    waiting for an answer (for example the ngrok key), it gets the next line
+    instead.
     """
 
     def __init__(self) -> None:
@@ -247,15 +348,16 @@ class Console:
         self.add("help", "/help", "Show this list", self._help)
 
     def add(self, name: str, usage: str, text: str, action: Callable[[str], None]) -> None:
+        """text is the explanation in English; it is translated when /help shows it."""
         self.commands[name] = (usage, text, action)
 
     def start(self) -> None:
-        threading.Thread(target=self._read_loop, name="konsol", daemon=True).start()
+        threading.Thread(target=self._read_loop, name="console", daemon=True).start()
 
-    # --- För andra delar av servern ------------------------------------
+    # --- For other parts of the server -----------------------------------
 
     def ask(self, hidden: bool = False) -> Optional[str]:
-        """Väntar på nästa rad som skrivs (utan att den syns om hidden). None = ingen terminal."""
+        """Waits for the next line typed (without showing it if hidden). None = no terminal."""
         request = _Request(hidden)
         with self._lock:
             self._waiting = request
@@ -271,7 +373,7 @@ class Console:
                     self._waiting = None
         return request.line
 
-    # --- Läsningen --------------------------------------------------------
+    # --- Reading -------------------------------------------------------------
 
     def _read_loop(self) -> None:
         while True:
@@ -279,7 +381,7 @@ class Console:
                 line = sys.stdin.readline()
             except (OSError, ValueError):
                 return
-            if line == "":  # fönstret stängt
+            if line == "":  # the window was closed
                 with self._lock:
                     waiting = self._waiting
                 if waiting:
@@ -297,25 +399,28 @@ class Console:
                 self.run(text)
 
     def run(self, text: str) -> None:
+        help_command = paint("/help", LIGHT_BLUE, bold=True)
         if not text.startswith("/"):
-            say(f"Commands start with /. Use {paint('/help', LIGHT_BLUE, bold=True)} to get a list of useful commands.")
+            say(tr("Commands start with /. Use {help} to get a list of useful commands.", help=help_command))
             return
         name, _, argument = text[1:].partition(" ")
         command = self.commands.get(name.lower())
         if command is None:
-            say(paint(f"Unknown command /{name}.", ERROR) + f" Use {paint('/help', LIGHT_BLUE, bold=True)} to see them all.")
+            say(paint(tr("Unknown command /{name}.", name=name), ERROR) + " "
+                + tr("Use {help} to see them all.", help=help_command))
             return
         try:
             command[2](argument.strip())
         except Exception:
-            log.exception("Kommandot /%s gick fel", name)
+            log.exception("The command /%s failed", name)
 
     def _help(self, _argument: str) -> None:
-        width = max(len(usage) for usage, _, _ in self.commands.values())
+        usages = [tr(usage) for usage, _, _ in self.commands.values()]
+        width = max(len(usage) for usage in usages)
         lines = []
-        for usage, text, _ in self.commands.values():
-            lines.append(f"{paint(usage.ljust(width), LIGHT_BLUE, bold=True)}   {text}")
-        print_box("COMMANDS", lines)
+        for usage, (_, text, _) in zip(usages, self.commands.values()):
+            lines.append(f"{paint(usage.ljust(width), LIGHT_BLUE, bold=True)}   {tr(text)}")
+        print_box(tr("COMMANDS"), lines)
 
 
 class _Request:
@@ -329,7 +434,7 @@ _saved_echo = None
 
 
 def _echo(on: bool) -> None:
-    """Slår av/på att det man skriver syns (som vid lösenord)."""
+    """Turns showing what you type off/on (like for a password)."""
     global _saved_echo
     try:
         import termios
@@ -347,5 +452,5 @@ def _echo(on: bool) -> None:
 
 
 def restore_terminal() -> None:
-    """Körs när servern stängs, så att man alltid ser vad man skriver efteråt."""
+    """Runs when the server stops, so that you always see what you type afterwards."""
     _echo(True)

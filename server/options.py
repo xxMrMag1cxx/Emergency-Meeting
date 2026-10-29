@@ -1,15 +1,15 @@
 """
-Spelinställningarna: allt man kan ställa in i lobbyn.
+The game settings: everything you can set in the lobby.
 
-Spelet skickar inställningarna som en lång rad bytes. Här läser vi ut
-varje inställning och ger den samma namn som i spelets meny, så att
-loggen kan visa vad som ändras, t.ex.
+The game sends the settings as a long row of bytes. Here we read out
+every setting and give it the same name as in the game's menu, so that
+the log can show what changes, for example
 
     Kill Cooldown: 30 s -> 25 s
 
-Om en framtida version av spelet lägger till nya inställningar som vi inte
-känner till sparar vi resten som "Övriga inställningar", så att vi ändå
-märker att något ändrades.
+If a future version of the game adds new settings that we don't know about,
+we save the rest as "Other settings", so that we still notice that
+something changed.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List
 
 from . import protocol
+from .i18n import tr as translate_text
 from .messages import MessageReader
 
 RULES_PRESETS = {0: "Standard", 1: "Standard Roles", 2: "Flashlight", 100: "Custom"}
@@ -40,26 +41,26 @@ ROLE_NAMES = {
 
 @dataclass
 class GameOptions:
-    raw: bytes = b""  # inställningarna precis som spelet skickade dem
+    raw: bytes = b""  # the settings exactly as the game sent them
     version: int = 0
     mode: int = 1
     max_players: int = 15
-    keywords: int = 0  # språk
+    keywords: int = 0  # language
     map_id: int = 0
     num_impostors: int = 1
-    # Alla inställningar med spelets namn, t.ex. {"Kill Cooldown": "25 s"}
+    # All settings with the game's names, for example {"Kill Cooldown": "25 s"}
     settings: Dict[str, str] = field(default_factory=dict)
 
     @property
     def map_name(self) -> str:
-        return protocol.MAPS.get(self.map_id, f"karta {self.map_id}")
+        return protocol.MAPS.get(self.map_id, f"map {self.map_id}")
 
     @property
     def mode_name(self) -> str:
-        return protocol.GAME_MODES.get(self.mode, f"läge {self.mode}")
+        return protocol.GAME_MODES.get(self.mode, f"mode {self.mode}")
 
 
-# --- Hur värden ska visas ------------------------------------------------
+# --- How values are shown -----------------------------------------------
 
 def _number(value: float) -> str:
     text = f"{value:.2f}".rstrip("0").rstrip(".")
@@ -85,11 +86,11 @@ def _languages(mask: int) -> str:
     return ", ".join(names) or str(mask)
 
 
-# --- Läsa inställningarna ------------------------------------------------
+# --- Reading the settings -----------------------------------------------
 
 def read_options(reader: MessageReader) -> GameOptions:
-    """Läser inställningar i spelets format: [längd][version][meddelande]."""
-    reader.read_packed_uint32()  # en längd som spelet inte använder
+    """Reads settings in the game's format: [length][version][message]."""
+    reader.read_packed_uint32()  # a length that the game doesn't use
     start = reader.pos
     version = reader.read_byte()
     inner = reader.read_message()
@@ -98,9 +99,9 @@ def read_options(reader: MessageReader) -> GameOptions:
     try:
         _read_all(inner, options)
     except ValueError:
-        pass  # okänt format: resten hamnar i "Övriga inställningar" nedan
+        pass  # unknown format: the rest ends up in "Other settings" below
     if inner.remaining:
-        options.settings["Övriga inställningar"] = inner.read_rest().hex(" ")
+        options.settings["Other settings"] = inner.read_rest().hex(" ")
     return options
 
 
@@ -143,7 +144,7 @@ def _read_classic(r: MessageReader, o: GameOptions) -> None:
     s["Kill Distance"] = KILL_DISTANCES.get(distance, str(distance))
     s["Discussion Time"] = _seconds(r.read_int32())
     s["Voting Time"] = _seconds(r.read_int32())
-    r.read_bool()  # "är standardvärden", visas inte i spelet
+    r.read_bool()  # "is default values", not shown in the game
     s["Emergency Cooldown"] = _seconds(r.read_byte())
     s["Confirm Ejects"] = _on_off(r.read_bool())
     s["Visual Tasks"] = _on_off(r.read_bool())
@@ -162,7 +163,7 @@ def _read_hide_and_seek(r: MessageReader, o: GameOptions) -> None:
     s["Common Tasks"] = str(r.read_byte())
     s["Long Tasks"] = str(r.read_byte())
     s["Short Tasks"] = str(r.read_byte())
-    r.read_bool()  # "är standardvärden"
+    r.read_bool()  # "is default values"
     s["Crewmate Vent Uses"] = str(r.read_int32())
     s["Hiding Time"] = _seconds(r.read_float())
     s["Crewmate Flashlight Size"] = _number(r.read_float())
@@ -174,7 +175,7 @@ def _read_hide_and_seek(r: MessageReader, o: GameOptions) -> None:
     s["Final Hide Pings"] = _on_off(r.read_bool())
     s["Show Names"] = _on_off(r.read_bool())
     seeker = r.read_uint32()
-    s["Impostor (seeker)"] = "Random" if seeker >= 255 else f"spelare nr {seeker}"
+    s["Impostor (seeker)"] = "Random" if seeker >= 255 else f"player no. {seeker}"
     s["Max Ping Time"] = _seconds(r.read_float())
     s["Crewmate Time in Vent"] = _seconds(r.read_float())
     if o.version >= 9:
@@ -187,9 +188,9 @@ def _read_roles(r: MessageReader, o: GameOptions) -> None:
     for _ in range(r.read_packed_uint32()):
         role = r.read_int16()
         if role not in ROLE_NAMES and not 0 <= role <= 64:
-            # Ser inte ut som en roll: formatet är nog nytt. Sluta här.
-            raise ValueError(f"okänd roll {role}")
-        name = ROLE_NAMES.get(role, f"Roll {role}")
+            # Doesn't look like a role: the format is probably new. Stop here.
+            raise ValueError(f"unknown role {role}")
+        name = ROLE_NAMES.get(role, f"Role {role}")
         s[f"{name} Max"] = str(r.read_byte())
         s[f"{name} Chance"] = f"{r.read_byte()}%"
         _read_role_settings(r.read_message(), role, name, s)
@@ -229,24 +230,32 @@ def _read_role_settings(r: MessageReader, role: int, name: str, s: Dict[str, str
     elif role == 21:  # Spirit Guide
         s[f"{name}: Cooldown"] = _seconds(r.read_byte())
 
-    if r.remaining:  # inställningar vi inte känner till för den här rollen
-        s[f"{name}: övrigt"] = r.read_rest().hex(" ")
+    if r.remaining:  # settings we don't know about for this role
+        s[f"{name}: other"] = r.read_rest().hex(" ")
 
 
-# --- Jämföra -------------------------------------------------------------
+# --- Comparing ----------------------------------------------------------
 
-def differences(old: GameOptions, new: GameOptions) -> List[str]:
-    """Returnerar en rad per ändrad inställning, t.ex. 'Kill Cooldown: 30 s -> 25 s'."""
+def _english(text: str, **values: object) -> str:
+    return text.format(**values)
+
+
+def differences(old: GameOptions, new: GameOptions, translate: bool = False) -> List[str]:
+    """
+    Returns one line per changed setting, for example 'Kill Cooldown: 30 s -> 25 s'.
+    The lines are in English, or in the terminal's language with translate=True.
+    """
+    tr = translate_text if translate else _english
     lines = []
     for key, value in new.settings.items():
         before = old.settings.get(key)
-        if before is not None and before != value and "övrig" in key.lower():
-            lines.append(f"{key} (okända inställningar, kan inte visa vad)")
+        if before is not None and before != value and "other" in key.lower():
+            lines.append(tr("{key} (unknown settings, can't show what)", key=key))
         elif before is None and old.settings:
-            lines.append(f"{key}: {value} (ny)")
+            lines.append(tr("{key}: {value} (new)", key=key, value=value))
         elif before is not None and before != value:
             lines.append(f"{key}: {before} -> {value}")
     for key in old.settings:
         if key not in new.settings and new.settings:
-            lines.append(f"{key}: borttagen")
+            lines.append(tr("{key}: removed", key=key))
     return lines

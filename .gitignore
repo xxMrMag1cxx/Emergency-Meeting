@@ -2,21 +2,25 @@ __pycache__/
 *.pyc
 .DS_Store
 
-# Skapas av servern / hamta-cloudflared.command
+# Created by the server / get-cloudflared.command
 regionInfo.json
 cloudflared
 cloudflared.tgz
 
-# Rapporter från servern
+# Reports from the server
+logs/
 loggar/
 
-# playit.gg: hemlig nyckel (skapas första gången)
+# playit.gg: secret key (created the first time)
+playit-key.txt
 playit-nyckel.txt
 
-# ngrok: hemlig nyckel, adressen och programmet (hämtas av servern)
+# ngrok: secret key, the address and the program (downloaded by the server)
+ngrok-key.txt
+ngrok-address.txt
 ngrok-nyckel.txt
 ngrok-adress.txt
 ngrok/
 
-# Inställningarna skapas första gången servern startar (med serverns namn)
+# The settings are created the first time the server starts (with the server's name and language)
 config.json

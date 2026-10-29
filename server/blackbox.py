@@ -1,9 +1,9 @@
 """
-Svart låda: kommer ihåg de senaste meddelandena för varje spelare.
+Black box: remembers the latest messages for each player.
 
-Om någon kopplas från oväntat sparas en rapport i mappen loggar/ med det
-sista som spelet och servern skickade till varandra. Då kan man se vad
-som hände precis innan, ungefär som en flygplans svarta låda.
+If someone is disconnected unexpectedly, a report is saved in the logs/
+folder with the last things the game and the server sent each other. Then
+you can see what happened just before, a bit like an airplane's black box.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from . import protocol
 from .config import PROJECT_DIR
 from .messages import MessageReader
 
-REPORT_DIR = PROJECT_DIR / "loggar"
+REPORT_DIR = PROJECT_DIR / "logs"
 
 GAME_DATA_NAMES = {1: "Data", 2: "RPC", 4: "Spawn", 5: "Despawn", 6: "SceneChange", 7: "Ready", 8: "Settings"}
 RPC_NAMES = {
@@ -35,12 +35,12 @@ RPC_NAMES = {
 
 
 def describe(payload: bytes) -> str:
-    """Gör om bytes till en kort text, t.ex. 'GameDataTo→3 [RPC:CheckName, RPC:CheckColor]'."""
+    """Turns bytes into a short text, for example 'GameDataTo→3 [RPC:CheckName, RPC:CheckColor]'."""
     parts: List[str] = []
     try:
         for message in MessageReader(payload).messages():
             tag = message.tag if message.tag is not None else -1
-            name = protocol.MESSAGE_NAMES.get(tag, f"tagg {tag}").split(" (")[0]
+            name = protocol.MESSAGE_NAMES.get(tag, f"tag {tag}").split(" (")[0]
             if tag in (protocol.GAME_DATA, protocol.GAME_DATA_TO):
                 reader = MessageReader(message.data)
                 reader.read_int32()
@@ -48,7 +48,7 @@ def describe(payload: bytes) -> str:
                     name += f"→{reader.read_packed_int32()}"
                 inner = []
                 for part in reader.messages():
-                    text = GAME_DATA_NAMES.get(part.tag or 0, f"del {part.tag}")
+                    text = GAME_DATA_NAMES.get(part.tag or 0, f"part {part.tag}")
                     if part.tag == protocol.GameDataTag.RPC:
                         net_id = part.read_packed_uint32()
                         call = part.read_byte()
@@ -61,8 +61,8 @@ def describe(payload: bytes) -> str:
                 name += " [" + ", ".join(inner) + "]"
             parts.append(f"{name} ({len(message.data)} B)")
     except ValueError:
-        parts.append(f"kunde inte tolkas ({len(payload)} B)")
-    return " + ".join(parts) or f"tomt ({len(payload)} B)"
+        parts.append(f"could not be understood ({len(payload)} B)")
+    return " + ".join(parts) or f"empty ({len(payload)} B)"
 
 
 class FlightRecorder:
@@ -82,7 +82,7 @@ class FlightRecorder:
     def _flush_counts(self) -> None:
         if self.unreliable_in or self.unreliable_out:
             self.events.append(
-                f"{self._stamp()}  ..  osäkra paket (t.ex. rörelser): {self.unreliable_in} in, {self.unreliable_out} ut"
+                f"{self._stamp()}  ..  unreliable packets (for example movement): {self.unreliable_in} in, {self.unreliable_out} out"
             )
             self.unreliable_in = self.unreliable_out = 0
 
@@ -98,23 +98,23 @@ class FlightRecorder:
     def save(self, name: str, why: str, lobby: Optional[str]) -> Optional[Path]:
         try:
             REPORT_DIR.mkdir(exist_ok=True)
-            safe = "".join(c if c.isalnum() else "_" for c in name) or "spelare"
-            path = REPORT_DIR / f"frankoppling-{time.strftime('%Y%m%d-%H%M%S')}-{safe}.txt"
+            safe = "".join(c if c.isalnum() else "_" for c in name) or "player"
+            path = REPORT_DIR / f"disconnect-{time.strftime('%Y%m%d-%H%M%S')}-{safe}.txt"
             lines = [
-                f"Spelare: {name}",
+                f"Player: {name}",
                 f"Lobby: {lobby or '-'}",
-                f"Anledning: {why}",
-                f"Ansluten i {int(time.monotonic() - self.started)} sekunder",
-                f"Senaste paket från spelet: {time.monotonic() - self.last_in:.1f} s före frånkopplingen",
-                f"Senaste kvitto från servern: {time.monotonic() - self.last_ack_out:.1f} s före frånkopplingen",
+                f"Reason: {why}",
+                f"Connected for {int(time.monotonic() - self.started)} seconds",
+                f"Last packet from the game: {time.monotonic() - self.last_in:.1f} s before the disconnect",
+                f"Last receipt from the server: {time.monotonic() - self.last_ack_out:.1f} s before the disconnect",
                 "",
-                "Senaste meddelandena (in = från spelet, ut = från servern):",
+                "The latest messages (in = from the game, out = from the server):",
                 "",
                 *self.events,
             ]
             path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-            # Spara bara de 15 senaste rapporterna.
-            old = sorted(REPORT_DIR.glob("frankoppling-*.txt"))[:-15]
+            # Only keep the 15 latest reports.
+            old = sorted(REPORT_DIR.glob("disconnect-*.txt"))[:-15]
             for file in old:
                 file.unlink()
             return path

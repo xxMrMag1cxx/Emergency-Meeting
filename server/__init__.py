@@ -1,3 +1,3 @@
-"""Emergency Meeting: en egen Among Us-server, byggd från grunden."""
+"""Emergency Meeting: our own Among Us server, built from scratch."""
 
-__version__ = "0.12.0"
+__version__ = "0.12.1"

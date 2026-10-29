@@ -1,21 +1,21 @@
 """
-Fast HTTPS-adress med ngrok.
+A fixed HTTPS address with ngrok.
 
-    Among Us --HTTPS--> ngrok --tunnel--> ngrok på Macen --HTTP--> vår server (TCP 22023)
+    Among Us --HTTPS--> ngrok --tunnel--> ngrok on the Mac --HTTP--> our server (TCP 22023)
 
-Varje gratiskonto på ngrok får en egen adress, t.ex.
-    https://glad-pingvin-1234.ngrok-free.dev
-som är samma varje gång servern startar. Då behöver kompisar bara lägga till
-servern i Among Us en gång. (Cloudflares adress byts vid varje start.)
+Every free account on ngrok gets its own address, for example
+    https://happy-penguin-1234.ngrok-free.dev
+that is the same every time the server starts. Then friends only have to add
+the server to Among Us once. (Cloudflare's address changes every start.)
 
-Första gången:
-  1. Servern ber värden skapa ett gratiskonto på ngrok och klistra in sin
-     "authtoken" i terminalfönstret. Den sparas i ngrok-nyckel.txt.
-  2. Servern hämtar programmet ngrok själv och lägger det i mappen ngrok/.
-Sedan går allt av sig självt. Om ngrok inte fungerar används Cloudflare som
-förut, så servern fungerar ändå.
+The first time:
+  1. The server asks the host to create a free account on ngrok and paste
+     their "authtoken" into the terminal window. It's saved in ngrok-key.txt.
+  2. The server downloads the program ngrok by itself and puts it in the ngrok/ folder.
+After that everything happens by itself. If ngrok doesn't work, Cloudflare is
+used like before, so the server works anyway.
 
-Allt det här körs i en egen tråd, så servern fungerar på ert wifi under tiden.
+All of this runs in its own thread, so the server works on your wifi meanwhile.
 """
 
 from __future__ import annotations
@@ -40,11 +40,12 @@ from pathlib import Path
 from typing import Callable, List, Optional
 
 from .config import PROJECT_DIR
+from .i18n import tr
 
 log = logging.getLogger("ngrok")
 
-KEY_FILE = PROJECT_DIR / "ngrok-nyckel.txt"
-ADDRESS_FILE = PROJECT_DIR / "ngrok-adress.txt"
+KEY_FILE = PROJECT_DIR / "ngrok-key.txt"
+ADDRESS_FILE = PROJECT_DIR / "ngrok-address.txt"
 NGROK_DIR = PROJECT_DIR / "ngrok"
 DOWNLOAD_BASE = os.environ.get("EM_NGROK_DOWNLOAD", "https://bin.equinox.io/c/bNyj1mQVY4c")
 
@@ -54,12 +55,12 @@ TOKEN_URL = "https://dashboard.ngrok.com/get-started/your-authtoken"
 URL_PATTERN = re.compile(r"https://[a-z0-9.-]+\.ngrok(?:-free)?\.(?:app|dev|io)\b")
 TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]{20,}$")
 
-READY_TIMEOUT = 40  # sekunder innan vi tar Cloudflare i stället
-MAX_STARTS = 3  # försök innan vi ger upp för den här gången
+READY_TIMEOUT = 40  # seconds before we use Cloudflare instead
+MAX_STARTS = 3  # tries before we give up for this time
 
 
 def find_ngrok(setting: str) -> Optional[str]:
-    """Letar efter ngrok: först i mappen ngrok/, sedan på vanliga ställen."""
+    """Looks for ngrok: first in the ngrok/ folder, then in the usual places."""
     if setting and setting != "auto":
         return setting if Path(setting).is_file() else None
     candidates: List[Path] = [NGROK_DIR / "ngrok"]
@@ -74,7 +75,7 @@ def find_ngrok(setting: str) -> Optional[str]:
 
 
 def download_name() -> Optional[str]:
-    """Vilken fil ngrok har för den här datorn, t.ex. ngrok-v3-stable-darwin-amd64.zip."""
+    """Which file ngrok has for this computer, for example ngrok-v3-stable-darwin-amd64.zip."""
     system = {"Darwin": "darwin", "Linux": "linux"}.get(platform.system())
     machine = platform.machine().lower()
     arch = {"x86_64": "amd64", "amd64": "amd64", "arm64": "arm64", "aarch64": "arm64"}.get(machine)
@@ -85,15 +86,15 @@ def download_name() -> Optional[str]:
 
 
 def download_ngrok() -> Optional[str]:
-    """Hämtar ngrok till mappen ngrok/. Returnerar sökvägen, eller None om det inte gick."""
+    """Downloads ngrok to the ngrok/ folder. Returns the path, or None if it didn't work."""
     name = download_name()
     if name is None:
-        log.error("ngrok finns inte för den här datorn (%s %s).", platform.system(), platform.machine())
+        log.error("ngrok isn't available for this computer (%s %s).", platform.system(), platform.machine())
         return None
     url = f"{DOWNLOAD_BASE}/{name}"
     NGROK_DIR.mkdir(exist_ok=True)
     archive = NGROK_DIR / name
-    log.info("Hämtar ngrok (%s)...", url)
+    log.info("Downloading ngrok (%s)...", url)
     if not _fetch(url, archive):
         return None
 
@@ -110,7 +111,7 @@ def download_ngrok() -> Optional[str]:
                 assert source is not None
                 target.write_bytes(source.read())
     except (OSError, zipfile.BadZipFile, tarfile.TarError, StopIteration, AssertionError) as error:
-        log.error("Kunde inte packa upp ngrok: %s", error)
+        log.error("Could not unpack ngrok: %s", error)
         return None
     finally:
         try:
@@ -122,14 +123,14 @@ def download_ngrok() -> Optional[str]:
     try:
         version = subprocess.run([str(target), "version"], capture_output=True, text=True, timeout=20)
     except (OSError, subprocess.SubprocessError) as error:
-        log.error("ngrok hämtades men går inte att starta: %s", error)
+        log.error("ngrok was downloaded but can't be started: %s", error)
         return None
-    log.info("Hämtade %s", (version.stdout or version.stderr).strip() or "ngrok")
+    log.info("Downloaded %s", (version.stdout or version.stderr).strip() or "ngrok")
     return str(target)
 
 
 def _fetch(url: str, target: Path) -> bool:
-    """Laddar ner en fil. curl först (följer med macOS), annars Python."""
+    """Downloads a file. curl first (comes with macOS), otherwise Python."""
     curl = shutil.which("curl")
     if curl:
         result = subprocess.run(
@@ -138,7 +139,7 @@ def _fetch(url: str, target: Path) -> bool:
         )
         if result.returncode == 0:
             return True
-        log.debug("curl misslyckades: %s", result.stderr.strip())
+        log.debug("curl failed: %s", result.stderr.strip())
     for context in (ssl.create_default_context(), ssl._create_unverified_context()):
         try:
             with urllib.request.urlopen(url, timeout=60, context=context) as response:
@@ -146,20 +147,20 @@ def _fetch(url: str, target: Path) -> bool:
             return True
         except urllib.error.URLError as error:
             if isinstance(error.reason, ssl.SSLError):
-                continue  # Macens Python saknar ibland certifikaten
-            log.error("Kunde inte hämta ngrok: %s", error.reason)
+                continue  # the Mac's Python sometimes lacks the certificates
+            log.error("Could not download ngrok: %s", error.reason)
             return False
         except OSError as error:
-            log.error("Kunde inte hämta ngrok: %s", error)
+            log.error("Could not download ngrok: %s", error)
             return False
     return False
 
 
-_saved_terminal = None  # terminalens inställningar medan nyckeln läses
+_saved_terminal = None  # the terminal's settings while the key is read
 
 
 def _read_hidden_line() -> str:
-    """Läser en rad utan att den syns i terminalen (som när man skriver ett lösenord)."""
+    """Reads a line without it showing in the terminal (like when you type a password)."""
     global _saved_terminal
     try:
         import termios
@@ -168,7 +169,7 @@ def _read_hidden_line() -> str:
         new = termios.tcgetattr(fd)
         new[3] &= ~termios.ECHO
         termios.tcsetattr(fd, termios.TCSADRAIN, new)
-    except Exception:  # ingen riktig terminal (t.ex. Windows eller ett test)
+    except Exception:  # no real terminal (for example Windows or a test)
         return sys.stdin.readline()
     _saved_terminal = (fd, old)
     try:
@@ -178,7 +179,7 @@ def _read_hidden_line() -> str:
 
 
 def restore_terminal() -> None:
-    """Sätter tillbaka terminalen (så att man ser vad man skriver igen)."""
+    """Puts the terminal back (so that you see what you type again)."""
     global _saved_terminal
     if _saved_terminal is None:
         return
@@ -193,8 +194,8 @@ def restore_terminal() -> None:
 
 def clean_token(text: str) -> str:
     """
-    Tar fram nyckeln ur det som klistrades in. På ngroks sida står den ofta
-    som ett kommando: "ngrok config add-authtoken 2abc...". Då tar vi sista ordet.
+    Gets the key out of what was pasted. On ngrok's page it's often written
+    as a command: "ngrok config add-authtoken 2abc...". Then we take the last word.
     """
     words = text.strip().strip("'\"").split()
     return words[-1].strip("'\"") if words else ""
@@ -202,9 +203,9 @@ def clean_token(text: str) -> str:
 
 class Ngrok:
     """
-    Startar ngrok och håller koll på det. Anropar on_ready(url) när adressen
-    fungerar, och on_failed() om ngrok inte går att använda (då tar
-    servern Cloudflare i stället).
+    Starts ngrok and keeps an eye on it. Calls on_ready(url) when the address
+    works, and on_failed() if ngrok can't be used (then the server uses
+    Cloudflare instead).
     """
 
     def __init__(
@@ -218,10 +219,10 @@ class Ngrok:
     ):
         self.setting = setting
         self.port = port
-        self.on_ready = on_ready  # (url, adressen har ändrats sedan förra gången)
+        self.on_ready = on_ready  # (url, the address has changed since last time)
         self.on_failed = on_failed
         self.show = show
-        # Läser en rad från terminalen (servern delar den med kommandona).
+        # Reads a line from the terminal (the server shares it with the commands).
         self.ask = ask
         self.url = ""
         self.process: Optional[subprocess.Popen] = None
@@ -253,7 +254,7 @@ class Ngrok:
             except OSError:
                 pass
 
-    # --- Huvudtråden ----------------------------------------------------
+    # --- The main thread ----------------------------------------------------
 
     def _main(self) -> None:
         try:
@@ -263,16 +264,16 @@ class Ngrok:
                 return
             binary = find_ngrok(self.setting) or (download_ngrok() if self.setting in ("", "auto") else None)
             if not binary:
-                self.show("NGROK GICK INTE ATT HÄMTA", [
-                    "Servern kunde inte hämta programmet ngrok.",
-                    "Kolla internetanslutningen och starta om servern.",
-                    "Under tiden används Cloudflare (adressen byts vid varje start).",
+                self.show(tr("NGROK COULD NOT BE DOWNLOADED"), [
+                    tr("The server could not download the program ngrok."),
+                    tr("Check the internet connection and restart the server."),
+                    tr("Meanwhile Cloudflare is used (the address changes every start)."),
                 ])
                 self._failed()
                 return
             self._run(binary, token)
-        except Exception:  # en bugg här får inte stoppa servern
-            log.exception("Något gick fel med ngrok")
+        except Exception:  # a bug here must not stop the server
+            log.exception("Something went wrong with ngrok")
             self._failed()
 
     def _failed(self) -> None:
@@ -280,7 +281,7 @@ class Ngrok:
             self._failed_reported = True
             self.on_failed()
 
-    # --- Steg 1: nyckeln ------------------------------------------------
+    # --- Step 1: the key ------------------------------------------------
 
     @staticmethod
     def _load_key() -> Optional[str]:
@@ -291,31 +292,31 @@ class Ngrok:
         return token or None
 
     def _ask_for_key(self, wrong: bool = False) -> Optional[str]:
-        """Frågar efter nyckeln i terminalfönstret (bara första gången)."""
+        """Asks for the key in the terminal window (only the first time)."""
         if sys.stdin is None:
             return None
         if wrong:
-            title = "NGROK KÄNNER INTE IGEN NYCKELN"
+            title = tr("NGROK DOESN'T RECOGNIZE THE KEY")
             intro = [
-                "Nyckeln i ngrok-nyckel.txt fungerar inte. Under tiden används Cloudflare.",
-                "Hämta en ny nyckel så här:",
+                tr("The key in ngrok-key.txt doesn't work. Meanwhile Cloudflare is used."),
+                tr("Get a new key like this:"),
             ]
         else:
-            title = "FAST HTTPS-ADRESS MED NGROK (bara första gången)"
+            title = tr("FIXED HTTPS ADDRESS WITH NGROK (only the first time)")
             intro = [
-                "Med ngrok får servern en HTTPS-adress som är samma varje gång,",
-                "så kompisar behöver bara lägga till servern en gång.",
+                tr("With ngrok the server gets an HTTPS address that is the same every time,"),
+                tr("so friends only have to add the server once."),
             ]
         self.show(title, intro + [
             "",
-            f"  1. Skapa ett gratiskonto (eller logga in): {SIGNUP_URL}",
-            f"  2. Öppna {TOKEN_URL}",
-            "  3. Kopiera din Authtoken.",
-            "  4. Klistra in den här i terminalfönstret och tryck Enter.",
-            "     (Nyckeln syns inte när du klistrar in den. Det är meningen,",
-            "     den är hemlig.)",
+            tr("  1. Create a free account (or log in): {url}", url=SIGNUP_URL),
+            tr("  2. Open {url}", url=TOKEN_URL),
+            tr("  3. Copy your Authtoken."),
+            tr("  4. Paste it here in the terminal window and press Enter."),
+            tr("     (The key doesn't show when you paste it. That's on purpose,"),
+            tr("     it's secret.)"),
             "",
-            "Tryck bara Enter för att hoppa över. Då används Cloudflare som förut.",
+            tr("Just press Enter to skip. Then Cloudflare is used like before."),
         ])
         for _ in range(3):
             try:
@@ -328,21 +329,21 @@ class Ngrok:
                 return None
             token = clean_token(text)
             if not token:
-                log.info("Hoppar över ngrok den här gången. Cloudflare används.")
+                log.info("Skipping ngrok this time. Cloudflare is used.")
                 return None
             if not TOKEN_PATTERN.match(token):
-                print("  Det där såg inte ut som en authtoken. Prova igen (eller tryck Enter):", flush=True)
+                print(tr("  That didn't look like an authtoken. Try again (or press Enter):"), flush=True)
                 continue
             KEY_FILE.write_text(token + "\n", encoding="utf-8")
             try:
                 KEY_FILE.chmod(0o600)
             except OSError:
                 pass
-            log.info("Tack! Nyckeln sparades i %s.", KEY_FILE.name)
+            log.info("Thanks! The key was saved in %s.", KEY_FILE.name)
             return token
         return None
 
-    # --- Steg 2: starta ngrok ------------------------------------------
+    # --- Step 2: start ngrok ------------------------------------------
 
     def _write_config(self, token: str) -> Path:
         path = Path(tempfile.gettempdir()) / f"em-ngrok-{os.getpid()}.yml"
@@ -373,7 +374,7 @@ class Ngrok:
 
     def _run(self, binary: str, token: str) -> None:
         config = self._write_config(token)
-        previous = self._saved_url()  # adressen förra gången
+        previous = self._saved_url()  # the address last time
         use_saved = True
         starts = 0
         while not self._stopping.is_set() and starts < MAX_STARTS:
@@ -384,7 +385,7 @@ class Ngrok:
                 command += ["--url", saved]
             self._errors = []
             ready = threading.Event()
-            log.info("Startar ngrok (fast HTTPS-adress)...")
+            log.info("Starting ngrok (fixed HTTPS address)...")
             try:
                 self.process = subprocess.Popen(
                     command,
@@ -396,7 +397,7 @@ class Ngrok:
                     cwd=tempfile.gettempdir(),
                 )
             except OSError as error:
-                log.error("Kunde inte starta ngrok: %s", error)
+                log.error("Could not start ngrok: %s", error)
                 self._failed()
                 return
             reader = threading.Thread(target=self._read_output, args=(self.process, ready), daemon=True)
@@ -407,7 +408,7 @@ class Ngrok:
             last_ask = 0.0
             while not ready.is_set() and self.process.poll() is None and not self._stopping.is_set():
                 if time.monotonic() - started > 8 and time.monotonic() - last_ask > 3:
-                    # Om loggen inte sa adressen: fråga ngroks egen lilla webbsida
+                    # If the log didn't say the address: ask ngrok's own little web page
                     last_ask = time.monotonic()
                     url = self._url_from_local_api()
                     if url:
@@ -416,7 +417,7 @@ class Ngrok:
                         break
                 if not slow and time.monotonic() - started > READY_TIMEOUT:
                     slow = True
-                    log.warning("ngrok har inte svarat på %d sekunder. Cloudflare används så länge.", READY_TIMEOUT)
+                    log.warning("ngrok hasn't answered in %d seconds. Cloudflare is used for now.", READY_TIMEOUT)
                     self._failed()
                 ready.wait(0.5)
 
@@ -433,7 +434,7 @@ class Ngrok:
                     KEY_FILE.unlink()
                 except OSError:
                     pass
-                self._failed()  # Cloudflare under tiden
+                self._failed()  # Cloudflare meanwhile
                 token = self._ask_for_key(wrong=True)
                 if not token:
                     return
@@ -441,20 +442,20 @@ class Ngrok:
                 starts = 0
                 continue
             if problem == "busy":
-                self.show("NGROK ANVÄNDS REDAN", [
-                    "ngrok-kontot används redan av en annan server eller ett annat program.",
-                    "Stäng det andra (eller den andra servern) och starta om den här.",
-                    "Under tiden används Cloudflare.",
+                self.show(tr("NGROK IS ALREADY IN USE"), [
+                    tr("The ngrok account is already used by another server or program."),
+                    tr("Close the other one (or the other server) and restart this one."),
+                    tr("Meanwhile Cloudflare is used."),
                 ])
                 self._failed()
                 return
             if problem == "url" and saved:
-                log.info("ngrok ville inte ha den sparade adressen %s. Provar utan den.", saved)
+                log.info("ngrok didn't want the saved address %s. Trying without it.", saved)
                 use_saved = False
                 continue
             if self.url:
-                log.error("ngrok stängdes av. Startar om om en stund...")
-                starts = 0  # det fungerade förut, så fortsätt försöka
+                log.error("ngrok was turned off. Restarting in a while...")
+                starts = 0  # it worked before, so keep trying
                 self._stopping.wait(10)
             else:
                 for text in self._errors[:3]:
@@ -462,7 +463,7 @@ class Ngrok:
                 self._failed()
                 self._stopping.wait(5)
         if not self.url:
-            log.warning("ngrok kom inte igång. Cloudflare används den här gången.")
+            log.warning("ngrok didn't get going. Cloudflare is used this time.")
             self._failed()
 
     def _read_output(self, process: subprocess.Popen, ready: threading.Event) -> None:
@@ -476,7 +477,7 @@ class Ngrok:
             except json.JSONDecodeError:
                 entry = None
             if not isinstance(entry, dict):
-                # Vissa fel skriver ngrok som vanlig text (t.ex. "ERROR:  ...")
+                # Some errors ngrok writes as plain text (for example "ERROR:  ...")
                 log.debug("ngrok: %s", line)
                 match = URL_PATTERN.search(line)
                 if match and "started" in line and not ready.is_set():
@@ -499,7 +500,7 @@ class Ngrok:
 
     @staticmethod
     def _url_from_local_api() -> str:
-        """ngrok har en liten webbsida på Macen (port 4040) som visar adressen."""
+        """ngrok has a little web page on the Mac (port 4040) that shows the address."""
         for port in (4040, 4041, 4042):
             for path in ("/api/tunnels", "/api/endpoints"):
                 try:
@@ -528,13 +529,13 @@ class Ngrok:
             return "url"
         return ""
 
-    # --- Steg 3: kolla adressen och berätta ---------------------------
+    # --- Step 3: check the address and tell ---------------------------
 
     def _check_and_announce(self, previous: str) -> None:
         url = self.url.rstrip("/")
         self.url = url
         if url == self._announced:
-            log.info("ngrok är igång igen (%s).", url)
+            log.info("ngrok is running again (%s).", url)
             return
         changed = bool(previous) and previous.rstrip("/") != url
         if not previous or changed:
@@ -542,11 +543,11 @@ class Ngrok:
                 ADDRESS_FILE.write_text(url + "\n", encoding="utf-8")
             except OSError:
                 pass
-        log.info("ngrok fick adressen %s, kollar att den fungerar...", url)
+        log.info("ngrok got the address %s, checking that it works...", url)
         if not self._reachable(url):
             log.warning(
-                "Kunde inte bekräfta ngrok-adressen från Macen, men den kan ändå fungera. "
-                "Prova att öppna %s på telefonen.", url,
+                "Could not confirm the ngrok address from the Mac, but it may work anyway. "
+                "Try opening %s on the phone.", url,
             )
         if not self._stopping.is_set():
             self._announced = url
@@ -558,7 +559,7 @@ class Ngrok:
         while time.monotonic() < deadline and not self._stopping.is_set():
             for context in contexts:
                 request = urllib.request.Request(f"{url}/ping")
-                request.add_header("ngrok-skip-browser-warning", "1")  # ingen varningssida
+                request.add_header("ngrok-skip-browser-warning", "1")  # no warning page
                 request.add_header("User-Agent", "EmergencyMeeting")
                 try:
                     with urllib.request.urlopen(request, timeout=5, context=context) as response:

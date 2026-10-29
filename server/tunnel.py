@@ -1,20 +1,20 @@
 """
-HTTPS-tunnel med Cloudflare (programmet "cloudflared").
+HTTPS tunnel with Cloudflare (the program "cloudflared").
 
-Among Us kräver HTTPS, och HTTPS kräver ett certifikat som telefoner och
-datorer litar på. Att skaffa ett eget är krångligt, så vi lånar Cloudflares:
+Among Us requires HTTPS, and HTTPS requires a certificate that phones and
+computers trust. Getting our own is complicated, so we borrow Cloudflare's:
 
-    Among Us --HTTPS--> Cloudflare --tunnel--> cloudflared på Macen --HTTP--> vår server
+    Among Us --HTTPS--> Cloudflare --tunnel--> cloudflared on the Mac --HTTP--> our server
 
-cloudflared ger oss en slumpad adress, t.ex.
+cloudflared gives us a random address, for example
     https://kingston-inside-best-graphic.trycloudflare.com
-Adressen byts varje gång servern startas om. Därför används helst ngrok
-(se ngrok.py), och Cloudflare är reserven om ngrok inte fungerar.
+The address changes every time the server restarts. That's why ngrok is
+preferred (see ngrok.py), and Cloudflare is the backup if ngrok doesn't work.
 
-Bara HTTP-delen går genom tunneln. Själva spelet (UDP) går via playit.gg
-(se playit.py), eller direkt till Macen på ert wifi.
+Only the HTTP part goes through the tunnel. The game itself (UDP) goes through
+playit.gg (see playit.py), or directly to the Mac on your wifi.
 
-Inget konto behövs. Hämta programmet en gång med hamta-cloudflared.command.
+No account is needed. Download the program once with get-cloudflared.command.
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ URL_PATTERN = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
 
 
 def find_cloudflared(setting: str) -> Optional[str]:
-    """Letar efter cloudflared: först i projektmappen, sedan på vanliga ställen."""
+    """Looks for cloudflared: first in the project folder, then in the usual places."""
     if setting and setting != "auto":
         return setting if Path(setting).exists() else None
 
@@ -71,7 +71,7 @@ class Tunnel:
             "--url",
             f"http://127.0.0.1:{self.port}",
         ]
-        log.info("Startar HTTPS-tunneln (tar oftast 5-15 sekunder)...")
+        log.info("Starting the HTTPS tunnel (usually takes 5-15 seconds)...")
         self.process = subprocess.Popen(
             command,
             stdout=subprocess.DEVNULL,
@@ -92,7 +92,7 @@ class Tunnel:
                     self.url = match.group(0)
                     threading.Thread(target=self._wait_until_reachable, daemon=True).start()
                     continue
-            # cloudflared skriver mycket. Vi visar bara felen (ERR), och inte för många.
+            # cloudflared writes a lot. We only show the errors (ERR), and not too many.
             if " ERR " in line and errors_shown < 5:
                 errors_shown += 1
                 log.warning("cloudflared: %s", line)
@@ -100,17 +100,17 @@ class Tunnel:
                 log.debug("cloudflared: %s", line)
 
         code = self.process.wait()
-        if code not in (0, -15):  # -15 = vi stängde av den själva
-            log.error("HTTPS-tunneln stängdes av (felkod %s).", code)
+        if code not in (0, -15):  # -15 = we turned it off ourselves
+            log.error("The HTTPS tunnel was turned off (error code %s).", code)
 
     def _wait_until_reachable(self) -> None:
         """
-        En ny adress tar en liten stund innan den fungerar överallt.
-        Vi provar själva tills vår egen server svarar genom tunneln.
+        A new address takes a little while before it works everywhere.
+        We try ourselves until our own server answers through the tunnel.
         """
-        log.info("Tunneln fick adressen %s, kollar att den fungerar...", self.url)
+        log.info("The tunnel got the address %s, checking that it works...", self.url)
         context = ssl.create_default_context()
-        unverified = ssl._create_unverified_context()  # bara för den här kollen
+        unverified = ssl._create_unverified_context()  # only for this check
         deadline = time.monotonic() + 90
         time.sleep(8)
         while time.monotonic() < deadline:
@@ -122,14 +122,14 @@ class Tunnel:
                             return
                 except urllib.error.URLError as error:
                     if isinstance(error.reason, ssl.SSLError):
-                        continue  # Macens Python saknar ibland certifikat, prova utan kollen
-                    break  # adressen fungerar inte än, vänta lite
+                        continue  # the Mac's Python sometimes lacks certificates, try without the check
+                    break  # the address doesn't work yet, wait a bit
                 except (OSError, ssl.SSLError):
                     break
             time.sleep(4)
         log.warning(
-            "Kunde inte bekräfta tunneln från Macen, men den kan ändå fungera. "
-            "Prova att öppna %s på telefonen.",
+            "Could not confirm the tunnel from the Mac, but it may work anyway. "
+            "Try opening %s on the phone.",
             self.url,
         )
         self.on_ready(self.url)

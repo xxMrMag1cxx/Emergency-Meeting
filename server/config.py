@@ -1,9 +1,10 @@
 """
-Inställningar för servern.
+The server's settings.
 
-Inställningarna läses från filen config.json i projektmappen. Filen skapas
-första gången servern startar (då frågar servern också efter ett namn),
-med standardvärdena nedan. Ändra i den med en texteditor.
+The settings are read from the file config.json in the project folder. The
+file is created the first time the server starts (the server then also asks
+for a language and a name), with the default values below. Change it with a
+text editor.
 """
 
 from __future__ import annotations
@@ -24,61 +25,65 @@ CONFIG_FILE = PROJECT_DIR / "config.json"
 
 @dataclass
 class Config:
-    # Namnet som visas i loggen och på startsidan.
+    # The name shown in the log, on the join page and as the region in Among Us.
     server_name: str = "Emergency Meeting"
 
-    # Vilken nätverksadress servern lyssnar på. "0.0.0.0" betyder
-    # "alla nätverk på den här datorn" och brukar vara rätt.
+    # The language in the server's Terminal window: "English" or "Swedish".
+    # Everything else (the join page, files, chat messages) is always English.
+    language: str = "English"
+
+    # Which network address the server listens on. "0.0.0.0" means
+    # "all networks on this computer" and is usually right.
     listen_ip: str = "0.0.0.0"
 
-    # Porten som spelet ansluter till. Among Us använder 22023 för
-    # både HTTP (TCP) och själva spelet (UDP).
+    # The port the game connects to. Among Us uses 22023 for both
+    # HTTP (TCP) and the game itself (UDP).
     port: int = 22023
 
-    # Adressen som andra enheter ska använda för att nå servern.
-    # "auto" betyder att servern själv tar reda på Macens adress
-    # i hemnätverket (t.ex. 192.168.1.23).
+    # The address other devices should use to reach the server.
+    # "auto" means the server finds out the Mac's address on the
+    # home network by itself (for example 192.168.1.23).
     public_ip: str = "auto"
 
-    # Starta en HTTPS-tunnel (krävs för att Among Us ska kunna ansluta
-    # från en annan enhet än Macen). Med ngrok om det går, annars cloudflared.
+    # Start an HTTPS tunnel (needed for Among Us to connect from another
+    # device than the Mac). With ngrok if possible, otherwise cloudflared.
     https_tunnel: bool = True
 
-    # Använd ngrok för HTTPS, så att adressen är samma varje gång.
-    # false = använd bara Cloudflare (adressen byts vid varje start).
+    # Use ngrok for HTTPS, so that the address is the same every time.
+    # false = only use Cloudflare (the address changes every start).
     ngrok: bool = True
 
-    # Var ngrok finns. "auto" = leta själv (mappen ngrok/ först) och hämta
-    # programmet om det saknas.
+    # Where ngrok is. "auto" = look by itself (the ngrok/ folder first) and
+    # download the program if it's missing.
     ngrok_path: str = "auto"
 
-    # Var cloudflared finns. "auto" = leta själv (projektmappen först).
+    # Where cloudflared is. "auto" = look by itself (the project folder first).
     cloudflared_path: str = "auto"
 
-    # Gör spelet nåbart från internet med playit.gg, så att kompisar kan
-    # spela från sina egna hem utan att något ändras i routern.
+    # Make the game reachable from the internet with playit.gg, so that
+    # friends can play from their own homes without changing the router.
     playit: bool = True
 
-    # Var programmet playitd finns. "auto" = leta själv (mappen playit/ först).
+    # Where the program playitd is. "auto" = look by itself (the playit/ folder first).
     playit_path: str = "auto"
 
-    # Ladda plugins från mappen plugins/.
+    # Load plugins from the plugins/ folder.
     plugins: bool = True
 
-    # Visa spelen på servern och deras koder på startsidan.
+    # Show the games on the server and their codes on the join page.
     page_shows_games: bool = True
 
-    # Visa HTTPS-adressen som QR-kod i Terminal-fönstret.
+    # Show the HTTPS address as a QR code in the Terminal window.
     terminal_qr: bool = True
 
-    # Färger i Terminal-fönstret.
+    # Colors in the Terminal window.
     colors: bool = True
 
-    # Vilka färger: "auto" (följer Macens mörka/ljusa läge), "dark" (för svart
-    # bakgrund) eller "light" (för vit bakgrund).
+    # Which colors: "auto" (follows the Mac's dark/light mode), "dark" (for a
+    # black background) or "light" (for a white background).
     color_theme: str = "auto"
 
-    # Sätt till true för att se varenda paket i loggen (bra för felsökning).
+    # Set to true to see every single packet in the log (good for debugging).
     debug: bool = False
 
     def resolved_public_ip(self) -> str:
@@ -89,11 +94,11 @@ class Config:
 
 def detect_local_ip() -> str:
     """
-    Tar reda på datorns adress i hemnätverket.
+    Finds out the computer's address on the home network.
 
-    Knepet: vi "låtsasansluter" ett UDP-uttag mot en adress på internet.
-    Inget skickas, men datorn väljer då vilket nätverkskort den skulle
-    ha använt, och vi kan läsa av dess adress.
+    The trick: we "pretend to connect" a UDP socket to an address on the
+    internet. Nothing is sent, but the computer then picks which network
+    card it would have used, and we can read its address.
     """
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
@@ -107,7 +112,27 @@ def config_exists() -> bool:
     return CONFIG_FILE.exists()
 
 
-# Inställningar i filen som servern inte känner till (sparas tillbaka orörda).
+# Files that had Swedish names in older versions -> their names now
+OLD_FILE_NAMES = {
+    "playit-nyckel.txt": "playit-key.txt",
+    "ngrok-nyckel.txt": "ngrok-key.txt",
+    "ngrok-adress.txt": "ngrok-address.txt",
+    "loggar": "logs",
+}
+
+
+def rename_old_files() -> None:
+    """Gives files from older versions their new names, so that nothing has to be done again."""
+    for old, new in OLD_FILE_NAMES.items():
+        old_path, new_path = PROJECT_DIR / old, PROJECT_DIR / new
+        if old_path.exists() and not new_path.exists():
+            try:
+                old_path.rename(new_path)
+            except OSError:
+                pass
+
+
+# Settings in the file that the server doesn't know (saved back untouched).
 _unknown: Dict[str, object] = {}
 
 
@@ -121,9 +146,9 @@ def load_config() -> Config:
     try:
         data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
-        log.error("config.json går inte att läsa: %s", error)
-        log.error("Kolla att alla citattecken och komman stämmer. Använder standardvärden.")
-        config._broken = True  # type: ignore[attr-defined]  # skriv inte över filen
+        log.error("config.json can't be read: %s", error)
+        log.error("Check that all quotes and commas are right. Using the default values.")
+        config._broken = True  # type: ignore[attr-defined]  # don't overwrite the file
         return config
 
     for key, value in data.items():
@@ -131,9 +156,9 @@ def load_config() -> Config:
             setattr(config, key, value)
         else:
             _unknown[key] = value
-            log.warning("Okänd inställning i config.json: %s (ignoreras)", key)
+            log.warning("Unknown setting in config.json: %s (ignored)", key)
 
-    # Nya inställningar från en nyare version läggs till i filen, så att de syns där.
+    # New settings from a newer version are added to the file, so that they show up there.
     known = {f.name for f in dataclasses.fields(Config)}
     if not known.issubset(data):
         save_config(config)
@@ -141,15 +166,15 @@ def load_config() -> Config:
 
 
 def save_config(config: Config) -> bool:
-    """Sparar inställningarna i config.json. Returnerar False om det inte gick."""
+    """Saves the settings in config.json. Returns False if it didn't work."""
     if getattr(config, "_broken", False):
-        log.warning("config.json har ett fel, så ändringen sparades inte i filen.")
+        log.warning("config.json has an error, so the change was not saved in the file.")
         return False
     data = dataclasses.asdict(config)
     data.update(_unknown)
     try:
         CONFIG_FILE.write_text(json.dumps(data, indent=4, ensure_ascii=False) + "\n", encoding="utf-8")
     except OSError as error:
-        log.error("Kunde inte spara config.json: %s", error)
+        log.error("Could not save config.json: %s", error)
         return False
     return True
