@@ -372,10 +372,6 @@ This is an alpha, so some things are missing or rough:
 - Anyone who has the join page address can add the server. They still need
   a game code to join a game, so only share the address with friends.
 - The Mac has to be awake and running the server while you play.
-- Bots can't climb ladders or ride the platform on The Airship, and on
-  The Fungle only some of the walls are known, so a bot can sometimes walk
-  through a tree or a rock. Bots also walk a little faster than the
-  Player Speed setting.
 - Everyone should have the same (or almost the same) version of Among Us as
   the host. The server warns in the log if the versions differ.
 
