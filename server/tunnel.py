@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Callable, List, Optional
 
 from .config import PROJECT_DIR
+from .i18n import tr
 
 log = logging.getLogger("tunnel")
 
@@ -56,10 +57,17 @@ def find_cloudflared(setting: str) -> Optional[str]:
 
 
 class Tunnel:
-    def __init__(self, binary: str, port: int, on_ready: Callable[[str], None]):
+    def __init__(
+        self,
+        binary: str,
+        port: int,
+        on_ready: Callable[[str], None],
+        on_failed: Optional[Callable[[str], None]] = None,
+    ):
         self.binary = binary
         self.port = port
         self.on_ready = on_ready
+        self.on_failed = on_failed  # (reason), if cloudflared stops before it gets an address
         self.url = ""
         self.process: Optional[subprocess.Popen] = None
 
@@ -71,7 +79,7 @@ class Tunnel:
             "--url",
             f"http://127.0.0.1:{self.port}",
         ]
-        log.info("Starting the HTTPS tunnel (usually takes 5-15 seconds)...")
+        log.debug("Starting the HTTPS tunnel (usually takes 5-15 seconds)...")
         self.process = subprocess.Popen(
             command,
             stdout=subprocess.DEVNULL,
@@ -102,6 +110,8 @@ class Tunnel:
         code = self.process.wait()
         if code not in (0, -15):  # -15 = we turned it off ourselves
             log.error("The HTTPS tunnel was turned off (error code %s).", code)
+        if not self.url and code != -15 and self.on_failed:
+            self.on_failed(tr("cloudflared stopped (error code {code})", code=code))
 
     def _wait_until_reachable(self) -> None:
         """

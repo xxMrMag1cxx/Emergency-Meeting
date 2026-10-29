@@ -46,6 +46,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 from . import __version__
 from .config import PROJECT_DIR
 from .i18n import tr
+from .terminal import say
 
 log = logging.getLogger("playit")
 
@@ -157,37 +158,68 @@ class PlayitApi:
             raise PlayitError(tr("could not reach playit.gg: {error}", error=error)) from None
 
 
+# Answers from playit.gg when a tunnel can't be created, that waiting and
+# trying again doesn't fix (the host has to do something).
+NEEDS_YOU = (
+    "RequiresVerifiedAccount", "RequiresPlayitPremium", "PublicPortRequiresPlayitPremium",
+    "RegionRequiresPlayitPremium", "RegionNotSupported", "DedicatedIpNotFound", "FirewallNotFound",
+)
+
+CREATE_ATTEMPTS_AT = (3, 8, 15, 25, 40)  # seconds after playitd started
+
+
+def explain_create_error(error: str) -> str:
+    """A short explanation of playit.gg's answer, for the box in the terminal."""
+    if "RequiresVerifiedAccount" in error:
+        return tr("playit.gg wants you to confirm your email first: {url}",
+                  url="https://playit.gg/account/settings/account/verify-email")
+    if "Premium" in error:
+        return tr("playit.gg says this needs playit Premium. Creating the tunnel by hand is free.")
+    if "AgentVersionTooOld" in error or "AgentNotFound" in error or "InvalidTunnelConfig" in error:
+        return tr("playit.gg didn't know the server's playit program yet ({error}).", error=error)
+    return tr("playit.gg said: {error}", error=error)
+
+
 class Playit:
     """
-    Starts playitd and makes sure there is a UDP tunnel to the game.
-    `on_ready(address, ip, port)` is called when players from outside can connect,
-    and again if the address changes.
+    Connects the server to playit.gg, starts playitd and makes sure there is a
+    UDP tunnel to the game. The steps run one at a time (see startup.py):
+
+      1. connect_account()  the first time: the host approves the server
+      2. start()            starts playitd, finds (or creates) the tunnel and
+                            waits until its address works
+      3. a watcher thread   checks every minute that everything still works
+
+    `on_change(address, ip, port)` is called when the address becomes ready or
+    changes after start() has returned.
     """
 
     def __init__(
         self,
         binary: str,
         port: int,
-        on_ready: Callable[[str, str, int], None],
         show: Callable[[str, List[str]], None],
-        on_waiting: Optional[Callable[[], None]] = None,
+        on_change: Optional[Callable[[str, str, int], None]] = None,
     ):
         self.binary = binary
         self.port = port
-        self.on_ready = on_ready
         self.show = show  # writes a box in the terminal
-        # Called when playit waits for the host to do something on playit.gg
-        self.on_waiting = on_waiting or (lambda: None)
+        self.on_change = on_change or (lambda address, ip, port: None)
         self.process: Optional[subprocess.Popen] = None
         self.address = ""
         self.endpoint: Optional[Tuple[str, int]] = None
+        self.agent_id: Optional[str] = None
+        self.problem = ""  # why start() didn't work
+        self.needs_you = False  # True if the host has to do something on playit.gg
+        self.key_broken = False  # True if playit.gg doesn't accept playit-key.txt
         self._stopping = threading.Event()
         self._shown: Dict[str, float] = {}
+        self._agent_started = 0.0
+        self._create_errors: List[str] = []
 
-    # --- Start and stop -------------------------------------------------
-
-    def start(self) -> None:
-        threading.Thread(target=self._main, name="playit", daemon=True).start()
+    @staticmethod
+    def has_key() -> bool:
+        return bool(Playit._load_secret())
 
     def stop(self) -> None:
         self._stopping.set()
@@ -197,16 +229,6 @@ class Playit:
                 self.process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 self.process.kill()
-
-    def _main(self) -> None:
-        try:
-            secret = self._load_secret() or self._claim()
-            if secret is None:
-                return
-            self._start_process(secret)
-            self._watch_tunnel(PlayitApi(secret))
-        except Exception:  # playit must never crash the server
-            log.exception("Something went wrong with playit.gg. The server still works on your wifi.")
 
     # --- Step 1: connect the server to a playit account ---------------------
 
@@ -218,13 +240,16 @@ class Playit:
             return None
         return secret or None
 
-    def _claim(self) -> Optional[str]:
-        """Shows a link that the host opens once. Returns the secret key."""
+    def connect_account(self, wait: Callable[[float], bool]) -> Optional[str]:
+        """
+        Shows a link that the host opens once, and waits until the server is
+        approved. Returns the secret key, or None if it didn't work or the host
+        skipped it. wait(seconds) waits and returns True if the host wants to skip.
+        """
         api = PlayitApi()
         code = secrets.token_hex(5)
         url = f"https://playit.gg/claim/{code}"
-        last_state = ""
-        last_box = 0.0
+        shown = False
         while not self._stopping.is_set():
             try:
                 state = api.call(
@@ -233,7 +258,8 @@ class Playit:
                 )
             except PlayitError as error:
                 log.warning("playit.gg: %s (trying again)", error)
-                self._stopping.wait(10)
+                if wait(10):
+                    return None
                 continue
 
             if state == "UserAccepted":
@@ -241,22 +267,24 @@ class Playit:
             if state == "UserRejected":
                 log.warning("The server was not approved on playit.gg. Restart the server for a new link.")
                 return None
-            if state != last_state or time.monotonic() - last_box > 300:
-                last_state, last_box = str(state), time.monotonic()
-                self.on_waiting()
+            if not shown:
+                shown = True
                 self.show(
                     tr("CONNECT THE SERVER TO PLAYIT.GG (only the first time)"),
                     [
                         tr("Then friends can play with you from their own homes."),
                         "",
-                        tr("Open this link in a browser:"),
-                        f"    {url}",
+                        tr("  1. Open this link in a browser:"),
+                        f"       {url}",
+                        tr("  2. Log in to playit.gg, or create a free account."),
+                        tr("  3. Approve the server (it's called Emergency Meeting)."),
                         "",
-                        tr("Log in (or create a free account) and approve the server."),
-                        tr("Meanwhile the server works as usual on your wifi."),
+                        tr("The server waits here until you have approved it."),
+                        tr("Press Enter to skip playit.gg for now (only your wifi can play then)."),
                     ],
                 )
-            self._stopping.wait(2)
+            if wait(2):
+                return None
         else:
             return None
 
@@ -265,7 +293,8 @@ class Playit:
                 reply = api.call("/claim/exchange", {"code": code})
             except PlayitError as error:
                 log.debug("Waiting for the key from playit.gg: %s", error)
-                self._stopping.wait(2)
+                if self._stopping.wait(2):
+                    return None
                 continue
             secret = reply.get("secret_key") if isinstance(reply, dict) else None
             if secret:
@@ -322,13 +351,14 @@ class Playit:
             except (OSError, subprocess.SubprocessError):
                 pass
 
-    def _start_process(self, secret: str) -> None:
+    def start_agent(self, secret: str) -> None:
+        """Starts playitd. Raises OSError if it can't be started."""
         self._stop_leftover()
         self._prepare_binary()
         socket_path = os.path.join(tempfile.gettempdir(), f"em-playitd-{os.getpid()}.sock")
         command = [self.binary, "--secret", secret, "--socket-path", socket_path]
         env = dict(os.environ, NO_COLOR="1", PLAYIT_LOG=os.environ.get("PLAYIT_LOG", "info"))
-        log.info("Starting the playit.gg tunnel...")
+        log.debug("Starting the playit.gg tunnel...")
         try:
             self.process = subprocess.Popen(
                 command,
@@ -346,11 +376,21 @@ class Playit:
                 log.error("If macOS says the program can't be opened: right-click "
                           "playit/playitd-macos in Finder, choose Open and then Open again.")
             raise
+        self._agent_started = time.monotonic()
         try:
             PID_FILE.write_text(str(self.process.pid))
         except OSError:
             pass
         threading.Thread(target=self._read_output, args=(self.process,), name="playitd", daemon=True).start()
+
+    def stop_agent(self) -> None:
+        process, self.process = self.process, None
+        if process and process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
 
     def _read_output(self, process: subprocess.Popen) -> None:
         assert process.stdout is not None
@@ -365,64 +405,80 @@ class Playit:
             else:
                 log.debug("playitd: %s", line)
         code = process.wait()
-        if not self._stopping.wait(2):  # Ctrl+C closes playitd and the server at the same time
+        # Ctrl+C closes playitd and the server at the same time, and stop_agent() closes it on purpose
+        if not self._stopping.wait(2) and process is self.process:
             log.error("The playit.gg tunnel was turned off (error code %s). Restarting in a while.", code)
 
     def _restart_if_dead(self, secret: str) -> None:
         if self.process is not None and self.process.poll() is not None and not self._stopping.is_set():
             self._stopping.wait(5)
             if not self._stopping.is_set():
-                self._start_process(secret)
+                self.start_agent(secret)
 
-    # --- Step 3: a UDP tunnel to the game ---------------------------------
+    # --- Step 3: a UDP tunnel to the game -----------------------------------
 
-    def _watch_tunnel(self, api: PlayitApi) -> None:
-        tried_create = False
-        last_resolve = 0.0
-        waiting_since = time.monotonic()
-        while not self._stopping.is_set():
-            self._restart_if_dead(api.secret or "")
+    def _rundata(self, api: PlayitApi) -> dict:
+        data = api.call("/v1/agents/rundata")
+        data = data if isinstance(data, dict) else {}
+        if data.get("agent_id"):
+            self.agent_id = str(data["agent_id"])
+        return data
+
+    def find_or_create_tunnel(
+        self, api: PlayitApi, deadline: float, wait: Callable[[float], bool], ask_the_host: bool
+    ) -> Optional[dict]:
+        """
+        Finds the tunnel to our port. If there is none, tries to create it a few
+        times (playit.gg has to know playitd first, so the first try waits a
+        moment). If that doesn't work and ask_the_host is True, shows how to
+        create it on playit.gg and waits for that. Returns the tunnel or None.
+        """
+        attempts = list(CREATE_ATTEMPTS_AT)
+        asked = False
+        while not self._stopping.is_set() and time.monotonic() < deadline:
             try:
-                data = api.call("/v1/agents/rundata")
+                data = self._rundata(api)
             except PlayitError as error:
                 if "auth" in str(error).lower():
-                    self._show_once("auth", tr("PLAYIT.GG DOESN'T RECOGNIZE THE SERVER"), [
-                        tr("The key in playit-key.txt doesn't work anymore"),
-                        tr("(maybe the server was removed on playit.gg)."),
-                        tr("Delete the file playit-key.txt and restart the server,"),
-                        tr("and you get a new link to approve."),
-                    ])
-                else:
-                    log.warning("playit.gg: %s (trying again in a while)", error)
-                self._stopping.wait(30)
+                    self._key_not_working()
+                    return None
+                log.warning("playit.gg: %s (trying again in a while)", error)
+                if wait(5):
+                    return None
                 continue
-            data = data if isinstance(data, dict) else {}
             self._report_account(data, api)
 
             tunnel = self._find_tunnel(data.get("tunnels") or [])
-            if tunnel is None:
-                if not tried_create and not data.get("pending"):
-                    tried_create = True
-                    self._create_tunnel(api, data.get("agent_id"))
-                elif time.monotonic() - waiting_since > 20:
-                    self._ask_for_tunnel(data.get("agent_id"), data.get("pending") or [])
-                self._stopping.wait(3 if time.monotonic() - waiting_since < 60 else 10)
-                continue
+            if tunnel is not None:
+                return tunnel
 
-            address = str(tunnel.get("display_address") or "")
-            if tunnel.get("disabled_reason"):
-                self._show_once(
-                    "disabled",
-                    tr("THE PLAYIT.GG TUNNEL IS DISABLED"),
-                    [tr("playit.gg says: {reason}", reason=tunnel["disabled_reason"]),
-                     tr("Check the tunnel at {url}", url="https://playit.gg/account/tunnels")],
-                )
-            elif address != self.address or time.monotonic() - last_resolve > RESOLVE_EVERY:
-                last_resolve = time.monotonic()
-                if not self._use_address(address) and not self.address:
-                    self._stopping.wait(10)  # the address is new, check again soon
-                    continue
-            self._stopping.wait(CHECK_EVERY)
+            pending = data.get("pending") or []
+            since_start = time.monotonic() - self._agent_started
+            if pending:
+                self._show_once("pending", tr("WAITING FOR PLAYIT.GG"), [
+                    tr("The tunnel exists but has no address yet. It usually takes a minute or so."),
+                    tr("Feel free to check {url}", url="https://playit.gg/account/tunnels"),
+                ])
+            elif attempts and since_start >= attempts[0]:
+                attempts.pop(0)
+                error = self._create_tunnel(api, data.get("agent_id"))
+                if error is None:
+                    attempts = []  # created: now wait for it to show up
+                elif any(code in error for code in NEEDS_YOU):
+                    attempts = []
+            elif not attempts and not asked and self._create_errors:
+                self.needs_you = True
+                self.problem = explain_create_error(self._create_errors[-1])
+                if ask_the_host:
+                    asked = True
+                    self._ask_for_tunnel(skip_hint=True)
+                else:
+                    return None
+            if wait(3 if since_start < 60 else 5):
+                return None
+        if not self.problem:
+            self.problem = tr("playit.gg didn't give the tunnel an address in time.")
+        return None
 
     def _find_tunnel(self, tunnels: List[dict]) -> Optional[dict]:
         """A UDP tunnel (or TCP+UDP) that goes to our port."""
@@ -441,9 +497,11 @@ class Playit:
                 best = tunnel  # no local port given: the same port as the public one
         return best
 
-    def _create_tunnel(self, api: PlayitApi, agent_id: Optional[str]) -> None:
+    def _create_tunnel(self, api: PlayitApi, agent_id: Optional[str]) -> Optional[str]:
+        """Tries to create the tunnel. Returns None if it worked, otherwise playit.gg's answer."""
         if not agent_id:
-            return
+            self._create_errors.append("no agent id")
+            return "no agent id"
         log.info("Creating a UDP tunnel to port %d on playit.gg...", self.port)
         requests = [
             # The way playit.gg's own program does it (version 1 of the call)
@@ -486,32 +544,71 @@ class Playit:
                 errors.append(str(error))
                 continue
             log.info("The tunnel is created. Waiting for playit.gg to give it an address...")
-            return
-        log.info("Could not create the tunnel automatically (%s).", "; ".join(errors))
-        self._ask_for_tunnel(agent_id, [])
+            return None
+        text = "; ".join(errors)
+        self._create_errors.append(text)
+        log.warning("Could not create the tunnel automatically (%s).", text)
+        return text
 
-    def _ask_for_tunnel(self, agent_id: Optional[str], pending: List[dict]) -> None:
-        self.on_waiting()
-        if pending:
-            self._show_once("pending", tr("WAITING FOR PLAYIT.GG"), [
-                tr("The tunnel exists but has no address yet. It usually takes a minute or so."),
-                tr("Feel free to check {url}", url="https://playit.gg/account/tunnels"),
-            ])
-            return
+    def _ask_for_tunnel(self, skip_hint: bool = False) -> None:
+        agent_id = self.agent_id
         link = f"https://playit.gg/account/agents/{agent_id}" if agent_id else "https://playit.gg/account/agents"
-        self._show_once("ask", tr("CREATE A TUNNEL ON PLAYIT.GG (only the first time)"), [
-            tr("The server could not create the tunnel by itself. Do this:"),
+        lines = [
+            tr("The server could not create the tunnel by itself."),
+            self.problem,
+            "",
             tr("  1. Open {url}", url=link),
             tr("  2. Add a tunnel: choose UDP, 1 port."),
             tr("  3. Local address {ip}, local port {port}.", ip=LOCAL_IP, port=self.port),
+            "",
             tr("The server finds the tunnel by itself when it's ready."),
+        ]
+        if skip_hint:
+            lines.append(tr("Press Enter to skip playit.gg for now (only your wifi can play then)."))
+        self._show_once("ask", tr("CREATE A TUNNEL ON PLAYIT.GG (only the first time)"), lines)
+
+    def _key_not_working(self) -> None:
+        self.needs_you = True
+        self.key_broken = True
+        self.problem = tr("The key in playit-key.txt doesn't work anymore.")
+        self._show_once("auth", tr("PLAYIT.GG DOESN'T RECOGNIZE THE SERVER"), [
+            tr("The key in playit-key.txt doesn't work anymore"),
+            tr("(maybe the server was removed on playit.gg)."),
+            tr("Delete the file playit-key.txt and restart the server,"),
+            tr("and you get a new link to approve."),
         ])
 
-    def _use_address(self, address: str) -> bool:
-        """Looks up the address's IP and tells the server. False if it didn't work."""
+    # --- Step 4: the address --------------------------------------------------
+
+    def wait_for_address(self, api: PlayitApi, tunnel: dict, deadline: float, wait: Callable[[float], bool]) -> bool:
+        """Waits until the tunnel's address can be looked up (the first time it can take minutes)."""
+        while not self._stopping.is_set() and time.monotonic() < deadline:
+            if tunnel.get("disabled_reason"):
+                self.needs_you = True
+                self.problem = tr("playit.gg says: {reason}", reason=tunnel["disabled_reason"])
+                self._show_once("disabled", tr("THE PLAYIT.GG TUNNEL IS DISABLED"), [
+                    self.problem,
+                    tr("Check the tunnel at {url}", url="https://playit.gg/account/tunnels"),
+                ])
+                return False
+            if self._use_address(str(tunnel.get("display_address") or ""), announce=False):
+                return True
+            if wait(5):
+                return False
+            try:
+                tunnel = self._find_tunnel(self._rundata(api).get("tunnels") or []) or tunnel
+            except PlayitError as error:
+                log.debug("playit.gg: %s", error)
+        if not self.problem:
+            self.problem = tr("playit.gg didn't give the tunnel an address in time.")
+        return False
+
+    def _use_address(self, address: str, announce: bool = True) -> bool:
+        """Looks up the address's IP. False if it didn't work (yet)."""
         parsed = parse_address(address)
         if parsed is None:
-            log.warning("Didn't understand the playit address %r", address)
+            if address:
+                log.warning("Didn't understand the playit address %r", address)
             return False
         host, port = parsed
         ip = resolve_ipv4(host)
@@ -525,21 +622,103 @@ class Playit:
                 log.debug("Still waiting for %s to exist", host)
             return False
         changed = (ip, port) != self.endpoint
-        first = not self.address
         self.address, self.endpoint = address, (ip, port)
-        if changed:
-            if first:
-                self.show(tr("PLAYIT IS READY!"), [
-                    tr("Friends can now play with you from their own homes,"),
-                    tr("on wifi or mobile data."),
-                    "",
-                    tr("The game's address through playit.gg: {address}", address=address),
-                    tr("That address is the same every time the server starts."),
-                ])
-            else:
-                log.info("The playit address is now %s (%s:%d)", address, ip, port)
-            self.on_ready(address, ip, port)
+        if changed and announce:
+            self.on_change(address, ip, port)
         return True
+
+    # --- Everything above, in order -----------------------------------------
+
+    def setup(self, wait: Callable[[float], bool]) -> bool:
+        """
+        The first time: connects the account, starts playitd, gets a tunnel
+        and waits until its address works. Waits for the host as long as
+        needed (wait() returns True if the host wants to skip). playitd is
+        stopped again afterwards; start() starts it for real.
+        """
+        secret = self._load_secret() or self.connect_account(wait)
+        if not secret:
+            return False
+        api = PlayitApi(secret)
+        try:
+            self.start_agent(secret)
+        except OSError:
+            return False
+        try:
+            say(tr("Getting a tunnel from playit.gg..."))
+            tunnel = self.find_or_create_tunnel(api, time.monotonic() + 24 * 3600, wait, ask_the_host=True)
+            if tunnel is None:
+                return False
+            say(tr("Waiting for playit.gg to make the address ready (the first time it can take a few minutes)..."))
+            return self.wait_for_address(api, tunnel, time.monotonic() + 15 * 60, wait)
+        finally:
+            self.stop_agent()
+
+    def start(self, timeout: float, wait_for_host: Optional[Callable[[float], bool]] = None) -> bool:
+        """
+        Starts playitd and waits (at most `timeout` seconds, plus the time the
+        host needs to approve the server) until the tunnel's address works.
+        Returns True if it does. Afterwards a thread keeps an eye on it, and
+        on_change() is called if the address shows up later or changes.
+        """
+        self.problem = ""
+        self.needs_you = False
+        self.key_broken = False
+        wait = self._stopping.wait
+        secret = self._load_secret()
+        if not secret and wait_for_host is not None:
+            secret = self.connect_account(wait_for_host)
+        if not secret:
+            self.needs_you = True
+            self.problem = tr("The server isn't connected to playit.gg yet.")
+            return False
+        api = PlayitApi(secret)
+        try:
+            self.start_agent(secret)
+        except OSError as error:
+            self.problem = tr("playitd could not be started: {error}", error=error)
+            return False
+        deadline = time.monotonic() + timeout
+        tunnel = self.find_or_create_tunnel(api, deadline, wait, ask_the_host=False)
+        ok = tunnel is not None and self.wait_for_address(api, tunnel, deadline, wait)
+        if not self.key_broken:
+            # Keeps checking, also if the host still has to create the tunnel:
+            # then the address is announced with on_change() when it's ready.
+            threading.Thread(target=self._watch, args=(api, secret), name="playit", daemon=True).start()
+        if not ok and self.needs_you and self._create_errors:
+            self._ask_for_tunnel()
+        return ok
+
+    # --- After the start: keep an eye on it ----------------------------------
+
+    def _watch(self, api: PlayitApi, secret: str) -> None:
+        """Checks every minute (more often while waiting) that the tunnel is still there."""
+        last_resolve = time.monotonic()
+        while not self._stopping.wait(CHECK_EVERY if self.endpoint else 10):
+            try:
+                self._restart_if_dead(secret)
+                data = self._rundata(api)
+                self._report_account(data, api)
+                tunnel = self._find_tunnel(data.get("tunnels") or [])
+                if tunnel is None:
+                    continue
+                address = str(tunnel.get("display_address") or "")
+                if tunnel.get("disabled_reason"):
+                    self._show_once(
+                        "disabled",
+                        tr("THE PLAYIT.GG TUNNEL IS DISABLED"),
+                        [tr("playit.gg says: {reason}", reason=tunnel["disabled_reason"]),
+                         tr("Check the tunnel at {url}", url="https://playit.gg/account/tunnels")],
+                    )
+                elif address != self.address or time.monotonic() - last_resolve > RESOLVE_EVERY:
+                    last_resolve = time.monotonic()
+                    old = self.endpoint
+                    if self._use_address(address) and old is not None and self.endpoint != old:
+                        log.info("The playit address is now %s (%s:%d)", address, *self.endpoint)
+            except PlayitError as error:
+                log.warning("playit.gg: %s (trying again in a while)", error)
+            except Exception:  # playit must never crash the server
+                log.exception("Something went wrong with playit.gg. The server still works on your wifi.")
 
     # --- Messages from playit.gg ----------------------------------------
 

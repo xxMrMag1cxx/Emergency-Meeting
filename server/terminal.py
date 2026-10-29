@@ -4,6 +4,7 @@ Everything to do with the Terminal window:
   - colors (the log's labels, the boxes' titles, the banner at the top)
   - the boxes with ===== around them
   - the questions the first time the server starts (language and name)
+  - the steps while the server starts (1/5 Plugins ... 5/5 HTTPS)
   - commands you type in the window, for example /help
 
 The colors are ANSI codes that Terminal on the Mac understands. They are
@@ -21,6 +22,7 @@ import logging
 import os
 import sys
 import threading
+import time
 from typing import Callable, Dict, List, Optional, Tuple
 
 from . import i18n
@@ -209,6 +211,58 @@ def success(text: str) -> None:
 def say(text: str = "") -> None:
     with _print_lock:
         print(f"  {text}" if text else "", flush=True)
+
+
+# --- The steps while the server starts ---------------------------------------
+
+STEP_MARKS = {"ok": ("✓", "ok"), "warn": ("!", "warn"), "failed": ("✗", "error"), "off": ("–", "time")}
+
+
+def print_step(number: int, total: int, title: str) -> None:
+    """'  4/5  playit.gg' when a step starts."""
+    with _print_lock:
+        print(f"  {paint(f'{number}/{total}', GRAY)}  {paint(title, LIGHT_BLUE, bold=True)}", flush=True)
+
+
+def print_step_result(kind: str, text: str) -> None:
+    """'       ✓ malls-vel.tun.ply.gg:45218' when a step is done. kind: ok, warn, failed or off."""
+    mark, color = STEP_MARKS.get(kind, STEP_MARKS["ok"])
+    with _print_lock:
+        print(f"       {paint(mark, color, bold=True)} {text}", flush=True)
+
+
+def print_step_detail(text: str) -> None:
+    with _print_lock:
+        print(f"         {text}", flush=True)
+
+
+def print_setup_step(number: int, total: int) -> None:
+    """'  Setup 3 of 4' above each part of the first-start guide."""
+    with _print_lock:
+        print()
+        print(f"  {paint(tr('Setup {number} of {total}', number=number, total=total), GRAY)}", end="", flush=True)
+
+
+def wait_for_enter(seconds: float) -> bool:
+    """
+    Waits at most `seconds`. Returns True if Enter was pressed meanwhile (for
+    "press Enter to skip" in the first-start guide). Without a terminal it just waits.
+    """
+    if sys.stdin is None:
+        time.sleep(seconds)
+        return False
+    try:
+        import select
+        ready, _, _ = select.select([sys.stdin], [], [], seconds)
+    except (OSError, ValueError, TypeError):
+        time.sleep(seconds)
+        return False
+    if not ready:
+        return False
+    if sys.stdin.readline() == "":  # no terminal (the input has ended)
+        time.sleep(seconds)
+        return False
+    return True
 
 
 # --- The language (asked the first time) ------------------------------------------

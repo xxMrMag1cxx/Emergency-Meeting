@@ -3,13 +3,14 @@
 > **Alpha:** Emergency Meeting works on macOS, but expect bugs.
 > [Report them here](https://github.com/xxMrMag1cxx/Emergency-Meeting/issues).
 
-Emergency Meeting is a open source free Among Us server you run on your own Mac. You and your
+Emergency Meeting is a free, open source Among Us server you run on your own Mac. You and your
 friends join it from your phones, tablets and computers, at home or from your
 own homes, without changing anything in the router. It's written from scratch
 in Python, using only what comes with Python, and it has its own plugin system.
+It was made with the help of AI, see [Made with AI](#made-with-ai).
 
 <p align="center">
-  <img src="docs/terminal.png" alt="The server's Terminal window with the box SERVER IS ONLINE! and a game with two bots" width="560">
+  <img src="docs/terminal.png" alt="The server's Terminal window starting one part at a time, then the box SERVER IS ONLINE! and a game with two bots" width="560">
   <img src="docs/join-page.png" alt="The join page on an iPhone, with the steps to add the server and a game code" width="230">
 </p>
 
@@ -43,9 +44,9 @@ in Python, using only what comes with Python, and it has its own plugin system.
 1. Download the latest version from
    [Releases](https://github.com/xxMrMag1cxx/Emergency-Meeting/releases)
    (**Source code (zip)** under Assets) and unpack it.
-2. Double-click **`start.command`**. The first time, it asks for the language,
-   a name for your server, a key from ngrok and a link to approve on
-   playit.gg.
+2. Double-click **`start.command`**. The first time, a short guide asks for
+   the language, a name for your server, a key from ngrok and a link to
+   approve on playit.gg, one thing at a time.
 3. When the box **SERVER IS ONLINE!** shows up, open the join page address on
    your phone (or scan the QR code), tap **Add to Among Us** and restart
    Among Us.
@@ -83,30 +84,51 @@ are started with a double-click in Finder.
 Double-click **`start.command`**. If macOS asks if Python may accept
 incoming connections, choose **Allow**.
 
-The first time, the server asks for a few things. They are only needed once:
+The first time, a short guide asks for four things, one at a time. They are
+only needed once:
 
-- **Select server language**: choose **English** or **Swedish** with the
-  arrow keys and press Enter. That is the language of the server's Terminal
-  window, see [Language](#language).
-- **NAME YOUR SERVER**: type a name for the server and press Enter (or
-  just Enter to keep *Emergency Meeting*). The name shows up as the region in
-  Among Us and on the join page. It can be changed later with
-  `/changeservername`, see [Commands](#commands).
-- **FIXED HTTPS ADDRESS WITH NGROK**: paste a key from ngrok, see
-  [Fixed HTTPS address with ngrok](#fixed-https-address-with-ngrok).
-- **CONNECT THE SERVER TO PLAYIT.GG**: open a link and approve the server, see
-  [Play with friends from home](#play-with-friends-from-home).
+1. **Select server language**: choose **English** or **Swedish** with the
+   arrow keys and press Enter. That is the language of the server's Terminal
+   window, see [Language](#language).
+2. **NAME YOUR SERVER**: type a name for the server and press Enter (or
+   just Enter to keep *Emergency Meeting*). The name shows up as the region in
+   Among Us and on the join page. It can be changed later with
+   `/changeservername`, see [Commands](#commands).
+3. **FIXED HTTPS ADDRESS WITH NGROK**: paste a key from ngrok, see
+   [Fixed HTTPS address with ngrok](#fixed-https-address-with-ngrok).
+   Press Enter to skip it.
+4. **CONNECT THE SERVER TO PLAYIT.GG**: open a link and approve the server.
+   The server then gets a tunnel from playit.gg and waits until its address
+   works, see [Play with friends from home](#play-with-friends-from-home).
+   Press Enter to skip it.
 
-After 10–30 seconds the server prints **HTTPS IS READY!** and an address,
-for example:
+Then the server starts, one part at a time. Each part starts when the one
+before is completely ready and has been checked:
 
 ```
-https://happy-penguin-1234.ngrok-free.dev
+  Starting the server, one part at a time:
+  1/5  Plugins
+       ✓ Loaded 1 plugin
+  2/5  Game server
+       ✓ Ready on UDP port 22023
+  3/5  Join page
+       ✓ Ready at http://localhost:22023
+  4/5  playit.gg
+       ✓ malls-cuff.tun.ply.gg:65023 (a test packet came through)
+  5/5  HTTPS address
+       ✓ https://happy-penguin-1234.ngrok-free.dev (ngrok)
 ```
 
-The address is the same every time the server starts. When everything is
-ready, the box **SERVER IS ONLINE!** appears. Then you can join, see
-[Connecting with Among Us](#connecting-with-among-us).
+When all parts are ready, the box **SERVER IS ONLINE!** shows the join page's
+address and a QR code. Then you can join, see
+[Connecting with Among Us](#connecting-with-among-us). The address is the same
+every time the server starts.
+
+If a part doesn't start, the server says what went wrong and restarts itself
+once (`/reboot`). If it goes wrong again, the server starts the rest as well
+as it can (for example Cloudflare instead of ngrok) and shows the box
+**SOMETHING ISN'T WORKING** with what to do. When you have fixed it, type
+`/reload` or `/reboot`.
 
 Stop the server with **Ctrl+C** (or type `/stop`).
 
@@ -222,14 +244,16 @@ time.
 
 ### The first time (only the host)
 
-1. Start the server. It shows the box **CONNECT THE SERVER TO PLAYIT.GG** with
-   a link, for example `https://playit.gg/claim/3fa91c0d2e`.
+1. Start the server. In the guide it shows the box **CONNECT THE SERVER TO
+   PLAYIT.GG** with a link, for example `https://playit.gg/claim/3fa91c0d2e`.
 2. Open the link in a browser. Log in, or create a free account, and
    approve the server.
 3. The server then creates a tunnel at playit.gg by itself. If that doesn't
-   work, it shows the box **CREATE A TUNNEL ON PLAYIT.GG** with what to click
-   on playit.gg. The server notices by itself when the tunnel is ready.
-4. When the box **PLAYIT IS READY!** shows up, everything is ready.
+   work, it shows the box **CREATE A TUNNEL ON PLAYIT.GG** with playit.gg's
+   answer and what to click on playit.gg. The server notices by itself when
+   the tunnel is ready.
+4. The server waits until the tunnel's address works (the first time it can
+   take a few minutes) and says **playit.gg is set up!**.
 
 The server saves a secret key in `playit-key.txt`. After that everything
 happens by itself every time the server starts.
@@ -246,6 +270,9 @@ through the internet instead of directly to the Mac.
 
 ### If something goes wrong
 
+- **"playit.gg wants you to confirm your email first"**: open the link, confirm
+  your email on playit.gg and wait a moment. The server finds the tunnel by
+  itself, or type `/reload`.
 - **PLAYIT.GG DOESN'T RECOGNIZE THE SERVER**: the key doesn't work anymore
   (for example if the server was removed on playit.gg). Delete
   `playit-key.txt` and restart the server, and a new link comes up.
@@ -282,6 +309,8 @@ press Enter:
 | `/address` | Shows the join page's address and the QR code again |
 | `/say <message>` | Sends a chat message to everyone in all games |
 | `/language <English\|Swedish>` | Changes the language in the Terminal window |
+| `/reload` | Starts playit.gg and the HTTPS address again, one at a time. Games keep going |
+| `/reboot` | Restarts the whole server in the same window. Everyone is disconnected |
 | `/stop` | Stops the server (the same as Ctrl+C) |
 
 When the server changes its name, the region in `regionInfo.json`, the button
@@ -377,6 +406,9 @@ This is an alpha, so some things are missing or rough:
 
 ## Troubleshooting
 
+- **SOMETHING ISN'T WORKING**: the box says which part didn't start and what
+  to do. After fixing it, type `/reload` (playit.gg and the HTTPS address) or
+  `/reboot` (the whole server).
 - **Black screen and nothing happens in the server window**: the game doesn't
   reach the server. Check that you use the HTTPS address from the *latest*
   start of the server. With ngrok the address is the same every time, but if
@@ -411,6 +443,15 @@ Found a bug? [Open an issue](https://github.com/xxMrMag1cxx/Emergency-Meeting/is
 with the text from the Terminal window and, if someone was disconnected, the
 file from `logs/`.
 
+## Made with AI
+
+Emergency Meeting was made with the help of AI. Most of the code and the
+texts (including this README) were written by
+[Claude](https://www.anthropic.com/claude), an AI assistant made by Anthropic,
+based on our ideas, tests and feedback. We decide what to build, test every
+version with the real game and report what doesn't work. We say this so that
+nobody is misled about how the project was made.
+
 ## Keep your keys secret
 
 `ngrok-key.txt` and `playit-key.txt` give access to your ngrok and playit.gg
@@ -443,6 +484,26 @@ without HTTPS) UDP goes directly from the game to the Mac on your wifi.
 6. After that the host sends **GameData** all the time (movements, color
    changes, chat...). The server passes it all on to the others in the lobby.
 
+### The order the server starts in
+
+The server starts from the inside out, one part at a time, and checks each part
+before the next one starts:
+
+1. **Plugins**, so that they are ready before any player can connect.
+2. **The game server** (UDP), checked with a test packet to itself.
+3. **The join page** (HTTP), checked by fetching its own page. ngrok and
+   Cloudflare send their traffic here.
+4. **playit.gg**, which sends the game from the internet to the game server,
+   so the game server must already run. Checked with a test packet through the
+   playit.gg address.
+5. **HTTPS** (ngrok, otherwise Cloudflare) last, because the join page hands
+   out the playit.gg address. If HTTPS opened first, a friend could get the
+   wrong address. Checked by fetching the page through HTTPS.
+
+`/reload` runs steps 4 and 5 again.
+
+### Who decides what
+
 Most of the game logic runs at the host. The server keeps track of who is in
 which game, passes the messages on, and decides kills: the game asks the
 server ("CheckMurder"), and the server checks that the killer is a living
@@ -453,9 +514,11 @@ is going on, before it sends "MurderPlayer" to everyone.
 
 ```
 server/
-  __main__.py    starts everything
+  __main__.py    the starting point: the guide the first time, then startup.py
   config.py      reads and saves config.json
-  terminal.py    colors, boxes, the language menu, the server name and the commands (/help)
+  startup.py     starts everything one part at a time, /reload, /reboot and the commands
+  wizard.py      the guide the first time the server starts
+  terminal.py    colors, boxes, the steps, the language menu, the server name and /help
   i18n.py        translations for the Terminal window
   locales/       the translations (sv.json = Swedish)
   matchmaker.py  the HTTP part: the game asks where the server is

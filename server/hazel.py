@@ -16,6 +16,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import socket
+import threading
 import time
 from collections import deque
 from typing import Callable, Deque, Dict, Optional, Set, Tuple
@@ -32,6 +35,11 @@ Address = Tuple[str, int]
 RESEND_AFTER_SECONDS = 0.3
 MAX_RESENDS = 10
 TIMEOUT_SECONDS = 15.0
+
+# A test packet the server sends to itself when it starts, to check that the
+# game server (and the way through playit.gg) works. It isn't a Hazel packet:
+# the first byte "E" isn't a packet type Among Us uses.
+PROBE_PREFIX = b"EM-PROBE:"
 
 
 class Connection:
@@ -162,6 +170,32 @@ class HazelServer(asyncio.DatagramProtocol):
         self.debug = debug
         self.transport: Optional[asyncio.DatagramTransport] = None
         self.connections: Dict[Address, Connection] = {}
+        self._probes: Dict[bytes, threading.Event] = {}
+
+    # --- Test packets ------------------------------------------------------
+
+    def probe(self, address: Address, seconds: float, every: float = 1.0) -> bool:
+        """
+        Sends test packets to address until one of them arrives here, or until
+        `seconds` have passed. Returns True if one arrived. Blocks, so run it in
+        a thread (not in the asyncio loop).
+        """
+        packet = PROBE_PREFIX + os.urandom(8).hex().encode()
+        arrived = threading.Event()
+        self._probes[packet] = arrived
+        deadline = time.monotonic() + seconds
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                while time.monotonic() < deadline:
+                    try:
+                        sock.sendto(packet, address)
+                    except OSError as error:
+                        log.debug("Could not send a test packet to %s: %s", address, error)
+                    if arrived.wait(min(every, max(0.0, deadline - time.monotonic()))):
+                        return True
+            return arrived.is_set()
+        finally:
+            self._probes.pop(packet, None)
 
     # --- asyncio calls these automatically -------------------------------
 
@@ -178,6 +212,12 @@ class HazelServer(asyncio.DatagramProtocol):
 
     def _handle_packet(self, data: bytes, address: Address) -> None:
         if not data:
+            return
+
+        if data.startswith(PROBE_PREFIX):
+            arrived = self._probes.get(bytes(data))
+            if arrived is not None:
+                arrived.set()
             return
 
         kind = data[0]

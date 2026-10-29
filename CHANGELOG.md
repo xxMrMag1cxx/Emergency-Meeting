@@ -2,6 +2,24 @@
 
 All versions of Emergency Meeting. Versions before 0.12.1 had Swedish texts.
 
+## 0.13.1-alpha (2026-10-29)
+
+- The first start is a guide, one thing at a time: the language, the name,
+  ngrok and playit.gg (approve the server, get a tunnel and wait until its
+  address works). Enter skips ngrok or playit.gg
+- The server starts one part at a time and checks each part before the next:
+  plugins, the game server, the join page, playit.gg and last the HTTPS
+  address. SERVER IS ONLINE! comes only when everything is ready
+- If a part doesn't start, the server restarts itself once. If it goes wrong
+  again, it starts the rest as well as it can and shows what to do
+- New command `/reload`: starts playit.gg and the HTTPS address again
+- New command `/reboot`: restarts the whole server in the same window
+- playit.gg: the server waits until playitd is connected before it creates
+  the tunnel, and tries several times. If it still doesn't work, the box shows
+  playit.gg's answer (for example "confirm your email first")
+- Test packets check that the game server and the way through playit.gg work
+- READMEs: "Made with AI"
+
 ## 0.13.0-alpha (2026-10-29)
 
 The first public alpha.

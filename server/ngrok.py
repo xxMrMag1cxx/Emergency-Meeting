@@ -231,6 +231,8 @@ class Ngrok:
         self._config_file: Optional[Path] = None
         self._errors: List[str] = []
         self._announced = ""
+        self.waiting_for_user = False  # True while the key is being asked for
+        self.skipped = False  # the host pressed Enter instead of pasting a key
 
     @staticmethod
     def has_key() -> bool:
@@ -267,7 +269,6 @@ class Ngrok:
                 self.show(tr("NGROK COULD NOT BE DOWNLOADED"), [
                     tr("The server could not download the program ngrok."),
                     tr("Check the internet connection and restart the server."),
-                    tr("Meanwhile Cloudflare is used (the address changes every start)."),
                 ])
                 self._failed()
                 return
@@ -295,6 +296,13 @@ class Ngrok:
         """Asks for the key in the terminal window (only the first time)."""
         if sys.stdin is None:
             return None
+        self.waiting_for_user = True
+        try:
+            return self._ask_for_key_now(wrong)
+        finally:
+            self.waiting_for_user = False
+
+    def _ask_for_key_now(self, wrong: bool) -> Optional[str]:
         if wrong:
             title = tr("NGROK DOESN'T RECOGNIZE THE KEY")
             intro = [
@@ -317,6 +325,7 @@ class Ngrok:
             tr("     it's secret.)"),
             "",
             tr("Just press Enter to skip. Then Cloudflare is used like before."),
+            tr("(To never be asked again, set \"ngrok\": false in config.json.)"),
         ])
         for _ in range(3):
             try:
@@ -329,6 +338,7 @@ class Ngrok:
                 return None
             token = clean_token(text)
             if not token:
+                self.skipped = True
                 log.info("Skipping ngrok this time. Cloudflare is used.")
                 return None
             if not TOKEN_PATTERN.match(token):
@@ -385,7 +395,7 @@ class Ngrok:
                 command += ["--url", saved]
             self._errors = []
             ready = threading.Event()
-            log.info("Starting ngrok (fixed HTTPS address)...")
+            log.debug("Starting ngrok (fixed HTTPS address)...")
             try:
                 self.process = subprocess.Popen(
                     command,
@@ -434,9 +444,9 @@ class Ngrok:
                     KEY_FILE.unlink()
                 except OSError:
                     pass
-                self._failed()  # Cloudflare meanwhile
                 token = self._ask_for_key(wrong=True)
                 if not token:
+                    self._failed()  # Cloudflare instead
                     return
                 config = self._write_config(token)
                 starts = 0
