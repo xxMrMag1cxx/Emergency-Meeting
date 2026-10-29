@@ -215,8 +215,10 @@ class MatchmakerHandler(BaseHTTPRequestHandler):
             )
             self._send(200, page, "text/html; charset=utf-8")
 
-        elif path == "/games.json":
-            # The list of games on the join page (fetched every five seconds)
+        elif path in ("/games.json", "/spel.json"):
+            # The list of games on the join page (fetched every five seconds).
+            # /spel.json is the old name: a join page from 0.12.0 or older that
+            # is still open in a browser keeps asking for it until it's reloaded.
             self._send(200, games_json(self.info.lobbies.all(), self.config.page_shows_games))
 
         elif path == "/regionInfo.json":
