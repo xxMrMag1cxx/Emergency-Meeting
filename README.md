@@ -3,7 +3,7 @@
 > **Alpha:** Emergency Meeting works on macOS, but expect bugs.
 > [Report them here](https://github.com/xxMrMag1cxx/Emergency-Meeting/issues).
 
-Emergency Meeting is an Among Us server you run on your own Mac. You and your
+Emergency Meeting is a open source free Among Us server you run on your own Mac. You and your
 friends join it from your phones, tablets and computers, at home or from your
 own homes, without changing anything in the router. It's written from scratch
 in Python, using only what comes with Python, and it has its own plugin system.
