@@ -50,7 +50,7 @@ def first_start(config: Config) -> Set[str]:
     config.server_name = ask_server_name(config.server_name)
     save_config(config)
 
-    print_setup_step(3, SETUP_STEPS)
+    print_setup_step(3, SETUP_STEPS, box_follows=config.https_tunnel and config.ngrok and not Ngrok.has_key())
     if not (config.https_tunnel and config.ngrok):
         say(tr("ngrok is turned off in config.json, skipping it."))
     elif Ngrok.has_key():
@@ -63,8 +63,8 @@ def first_start(config: Config) -> Set[str]:
             skipped.add("ngrok")
             say(tr("Skipping ngrok. The server uses Cloudflare instead (the address changes every start)."))
 
-    print_setup_step(4, SETUP_STEPS)
     binary = find_playitd(config.playit_path) if config.playit else None
+    print_setup_step(4, SETUP_STEPS, box_follows=bool(binary) and not Playit.has_key())
     if not config.playit:
         say(tr("playit.gg is turned off in config.json, skipping it."))
     elif not binary:

@@ -781,11 +781,31 @@ def add_commands(server: Server) -> None:
                 say(tr("There are no games to send to right now."))
         loop.call_soon_threadsafe(send)
 
+    def online_rooms() -> List[str]:
+        return [lobby.code for lobby in info.lobbies.all() if lobby.players]
+
+    def warn_first(rebooting: bool, action: Callable[[], None]) -> None:
+        """Asks "Do you wish to proceed?" first, but only if a room is online."""
+        codes = online_rooms()
+        if not codes:
+            action()
+            return
+        rooms = ", ".join(paint(code, LIGHT_BLUE, bold=True) for code in codes)
+        what = tr("Rebooting") if rebooting else tr("Reloading")
+        print_box(tr("WARNING"), [
+            tr("One or more online rooms are playing right now: {rooms}", rooms=rooms),
+            tr("{what} will disconnect all online rooms.", what=what),
+            "",
+            tr("Do you wish to proceed? Type {yes} or {no}.",
+               yes=paint("yes", LIGHT_BLUE, bold=True), no=paint("no", LIGHT_BLUE, bold=True)),
+        ])
+        console.confirm(action)
+
     def reload(_argument: str) -> None:
-        asyncio.run_coroutine_threadsafe(server.reload(), loop)
+        warn_first(False, lambda: asyncio.run_coroutine_threadsafe(server.reload(), loop))
 
     def reboot(_argument: str) -> None:
-        loop.call_soon_threadsafe(server.reboot)
+        warn_first(True, lambda: loop.call_soon_threadsafe(server.reboot))
 
     def stop(_argument: str) -> None:
         say(tr("Stopping the server..."))

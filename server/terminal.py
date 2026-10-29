@@ -236,11 +236,12 @@ def print_step_detail(text: str) -> None:
         print(f"         {text}", flush=True)
 
 
-def print_setup_step(number: int, total: int) -> None:
-    """'  Setup 3 of 4' above each part of the first-start guide."""
+def print_setup_step(number: int, total: int, box_follows: bool = True) -> None:
+    """'  Setup 3 of 4' above each part of the first-start guide (the box below starts the next line)."""
     with _print_lock:
         print()
-        print(f"  {paint(tr('Setup {number} of {total}', number=number, total=total), GRAY)}", end="", flush=True)
+        end = "" if box_follows else "\n"
+        print(f"  {paint(tr('Setup {number} of {total}', number=number, total=total), GRAY)}", end=end, flush=True)
 
 
 def wait_for_enter(seconds: float) -> bool:
@@ -398,6 +399,7 @@ class Console:
     def __init__(self) -> None:
         self.commands: Dict[str, Command] = {}
         self._waiting: Optional["_Request"] = None
+        self._confirm: Optional[Callable[[], None]] = None  # what to do if the answer is yes
         self._lock = threading.Lock()
         self.add("help", "/help", "Show this list", self._help)
 
@@ -427,6 +429,29 @@ class Console:
                     self._waiting = None
         return request.line
 
+    def confirm(self, on_yes: Callable[[], None]) -> None:
+        """
+        For a command that asks "Type yes or no": the next line typed is the
+        answer. yes runs on_yes, no cancels. (The question itself is printed
+        by the command.)
+        """
+        with self._lock:
+            self._confirm = on_yes
+
+    def _answer(self, text: str) -> None:
+        answer = text.strip().lower()
+        if answer in ("yes", "y", "ja", "j"):
+            with self._lock:
+                on_yes, self._confirm = self._confirm, None
+            if on_yes is not None:
+                on_yes()
+        elif answer in ("no", "n", "nej"):
+            with self._lock:
+                self._confirm = None
+            say(tr("Cancelled, nothing was changed."))
+        else:
+            say(tr("Type {yes} or {no}.", yes=paint("yes", LIGHT_BLUE, bold=True), no=paint("no", LIGHT_BLUE, bold=True)))
+
     # --- Reading -------------------------------------------------------------
 
     def _read_loop(self) -> None:
@@ -445,10 +470,18 @@ class Console:
             text = line.strip()
             with self._lock:
                 waiting = self._waiting
+                confirming = self._confirm is not None
             if waiting is not None and not text.startswith("/"):
                 waiting.line = text
                 waiting.done.set()
                 continue
+            if confirming:
+                if text.startswith("/"):
+                    with self._lock:
+                        self._confirm = None  # a new command instead of an answer: forget the question
+                else:
+                    self._answer(text)
+                    continue
             if text:
                 self.run(text)
 

@@ -309,9 +309,12 @@ press Enter:
 | `/address` | Shows the join page's address and the QR code again |
 | `/say <message>` | Sends a chat message to everyone in all games |
 | `/language <English\|Swedish>` | Changes the language in the Terminal window |
-| `/reload` | Starts playit.gg and the HTTPS address again, one at a time. Games keep going |
+| `/reload` | Starts playit.gg and the HTTPS address again, one at a time. Friends playing from home are disconnected |
 | `/reboot` | Restarts the whole server in the same window. Everyone is disconnected |
 | `/stop` | Stops the server (the same as Ctrl+C) |
+
+If a room is online, `/reload` and `/reboot` first show a warning with the
+rooms' codes and ask you to type `yes` or `no`.
 
 When the server changes its name, the region in `regionInfo.json`, the button
 on the join page and the heading change right away. Those who have already

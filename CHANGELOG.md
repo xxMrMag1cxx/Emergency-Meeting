@@ -14,11 +14,15 @@ All versions of Emergency Meeting. Versions before 0.12.1 had Swedish texts.
   again, it starts the rest as well as it can and shows what to do
 - New command `/reload`: starts playit.gg and the HTTPS address again
 - New command `/reboot`: restarts the whole server in the same window
+- If a room is online, `/reload` and `/reboot` first warn that all online
+  rooms will be disconnected and ask you to type yes or no
 - playit.gg: the server waits until playitd is connected before it creates
   the tunnel, and tries several times. If it still doesn't work, the box shows
   playit.gg's answer (for example "confirm your email first")
 - Test packets check that the game server and the way through playit.gg work
 - READMEs: "Made with AI"
+- Fixed: "Setup 3 of 4" and the text after it ended up on the same line when
+  ngrok or playit.gg already had a key
 
 ## 0.13.0-alpha (2026-10-29)
 
