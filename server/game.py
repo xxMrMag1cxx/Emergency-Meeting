@@ -922,7 +922,7 @@ class Game:
                 )
                 log.warning(
                     "  If you play through playit.gg: wait until the box PLAYIT IS READY! has been shown. "
-                    "Otherwise: check that the device is on the same wifi as the Mac (on iPhone: "
+                    "Otherwise: check that the device is on the same wifi as the server (on iPhone: "
                     "Settings > Privacy & Security > Local Network > turn on Among Us)."
                 )
 

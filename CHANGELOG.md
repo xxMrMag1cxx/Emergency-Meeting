@@ -2,6 +2,22 @@
 
 All versions of Emergency Meeting. Versions before 0.12.1 had Swedish texts.
 
+## 0.13.4-alpha (2026-10-30)
+
+- Windows 10 and 11: start the server with `start.bat`. Colors, the input line
+  at the bottom, the arrow-key language menu, hidden keys and `/reboot` work
+  in the Windows console and Windows Terminal
+- Linux: start the server with `./start.sh`
+- On Windows and Linux the server downloads playitd (playit.gg's own files)
+  and cloudflared by itself when they are missing. ngrok is downloaded on all
+  three
+- Releases get one zip file for each system under Assets (macOS, Windows,
+  Linux), made by GitHub Actions (`tools/make_release.py`)
+- The Terminal window says "computer" instead of "Mac"
+- Fixed: Cloudflare's own address (`api.trycloudflare.com`) in an error
+  message was taken for the tunnel's address, and the server then waited 90
+  seconds for nothing
+
 ## 0.13.3-alpha (2026-10-30)
 
 - Bans that last: when the host bans someone, the server saves it in

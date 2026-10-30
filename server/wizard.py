@@ -22,7 +22,7 @@ from . import i18n
 from .config import Config, save_config
 from .i18n import tr
 from .ngrok import Ngrok
-from .playit import Playit, find_playitd
+from .playit import Playit, find_playitd, playitd_name
 from .terminal import (
     LIGHT_BLUE, PURPLE, ask_server_name, choose_language, paint, print_box, print_setup_step, say, success,
     wait_for_enter,
@@ -69,7 +69,7 @@ def first_start(config: Config) -> Set[str]:
         say(tr("playit.gg is turned off in config.json, skipping it."))
     elif not binary:
         skipped.add("playit")
-        say(tr("playit.gg isn't here (playit/playitd-macos is missing), skipping it."))
+        say(tr("playit.gg isn't here (playit/{name} is missing), skipping it.", name=playitd_name()))
     else:
         playit = Playit(binary, config.port, print_box)
         try:

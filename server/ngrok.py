@@ -41,6 +41,7 @@ from typing import Callable, List, Optional
 
 from .config import PROJECT_DIR
 from .i18n import tr
+from .platforms import IS_WINDOWS, arch, download, exe
 
 log = logging.getLogger("ngrok")
 
@@ -63,11 +64,12 @@ def find_ngrok(setting: str) -> Optional[str]:
     """Looks for ngrok: first in the ngrok/ folder, then in the usual places."""
     if setting and setting != "auto":
         return setting if Path(setting).is_file() else None
-    candidates: List[Path] = [NGROK_DIR / "ngrok"]
+    candidates: List[Path] = [NGROK_DIR / exe("ngrok")]
     found = shutil.which("ngrok")
     if found:
         candidates.append(Path(found))
-    candidates += [Path("/opt/homebrew/bin/ngrok"), Path("/usr/local/bin/ngrok")]
+    if not IS_WINDOWS:
+        candidates += [Path("/opt/homebrew/bin/ngrok"), Path("/usr/local/bin/ngrok")]
     for path in candidates:
         if path.is_file():
             return str(path)
@@ -76,13 +78,12 @@ def find_ngrok(setting: str) -> Optional[str]:
 
 def download_name() -> Optional[str]:
     """Which file ngrok has for this computer, for example ngrok-v3-stable-darwin-amd64.zip."""
-    system = {"Darwin": "darwin", "Linux": "linux"}.get(platform.system())
-    machine = platform.machine().lower()
-    arch = {"x86_64": "amd64", "amd64": "amd64", "arm64": "arm64", "aarch64": "arm64"}.get(machine)
-    if not system or not arch:
+    system = {"Darwin": "darwin", "Linux": "linux", "Windows": "windows"}.get(platform.system())
+    machine = arch()
+    if not system or not machine:
         return None
-    ending = "zip" if system == "darwin" else "tgz"
-    return f"ngrok-v3-stable-{system}-{arch}.{ending}"
+    ending = "tgz" if system == "linux" else "zip"
+    return f"ngrok-v3-stable-{system}-{machine}.{ending}"
 
 
 def download_ngrok() -> Optional[str]:
@@ -95,14 +96,14 @@ def download_ngrok() -> Optional[str]:
     NGROK_DIR.mkdir(exist_ok=True)
     archive = NGROK_DIR / name
     log.info("Downloading ngrok (%s)...", url)
-    if not _fetch(url, archive):
+    if not download(url, archive, "ngrok"):
         return None
 
-    target = NGROK_DIR / "ngrok"
+    target = NGROK_DIR / exe("ngrok")
     try:
         if name.endswith(".zip"):
             with zipfile.ZipFile(archive) as z:
-                member = next(m for m in z.namelist() if m.rstrip("/").endswith("ngrok"))
+                member = next(m for m in z.namelist() if m.rstrip("/").endswith(exe("ngrok")))
                 target.write_bytes(z.read(member))
         else:
             with tarfile.open(archive) as t:
@@ -129,39 +130,18 @@ def download_ngrok() -> Optional[str]:
     return str(target)
 
 
-def _fetch(url: str, target: Path) -> bool:
-    """Downloads a file. curl first (comes with macOS), otherwise Python."""
-    curl = shutil.which("curl")
-    if curl:
-        result = subprocess.run(
-            [curl, "-fsSL", "--retry", "2", "-o", str(target), url],
-            capture_output=True, text=True,
-        )
-        if result.returncode == 0:
-            return True
-        log.debug("curl failed: %s", result.stderr.strip())
-    for context in (ssl.create_default_context(), ssl._create_unverified_context()):
-        try:
-            with urllib.request.urlopen(url, timeout=60, context=context) as response:
-                target.write_bytes(response.read())
-            return True
-        except urllib.error.URLError as error:
-            if isinstance(error.reason, ssl.SSLError):
-                continue  # the Mac's Python sometimes lacks the certificates
-            log.error("Could not download ngrok: %s", error.reason)
-            return False
-        except OSError as error:
-            log.error("Could not download ngrok: %s", error)
-            return False
-    return False
-
-
 _saved_terminal = None  # the terminal's settings while the key is read
 
 
 def _read_hidden_line() -> str:
     """Reads a line without it showing in the terminal (like when you type a password)."""
     global _saved_terminal
+    if IS_WINDOWS:
+        import getpass
+        try:
+            return getpass.getpass("") + "\n"
+        except EOFError:
+            return ""
     try:
         import termios
         fd = sys.stdin.fileno()
@@ -556,7 +536,7 @@ class Ngrok:
         log.info("ngrok got the address %s, checking that it works...", url)
         if not self._reachable(url):
             log.warning(
-                "Could not confirm the ngrok address from the Mac, but it may work anyway. "
+                "Could not confirm the ngrok address from this computer, but it may work anyway. "
                 "Try opening %s on the phone.", url,
             )
         if not self._stopping.is_set():

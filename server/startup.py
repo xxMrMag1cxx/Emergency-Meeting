@@ -48,7 +48,8 @@ from .i18n import tr
 from .lobby import LobbyManager
 from .matchmaker import ServerInfo, start_matchmaker
 from .ngrok import Ngrok
-from .playit import Playit, find_playitd
+from .playit import Playit, find_playitd, playitd_name
+from .platforms import IS_MAC, IS_WINDOWS, RESTART_AFTER_FAILURE_EXIT_CODE, RESTART_EXIT_CODE
 from .plugins import PluginManager
 from .protocol import DisconnectReason
 from .qrcode import QrCode
@@ -131,7 +132,7 @@ class Server:
         config = self.config
         print_banner(config.server_name, __version__, [
             tr("Port: {port} (TCP + UDP)", port=config.port),
-            tr("The Mac's address on the network: {ip}", ip=self.info.public_ip),
+            tr("The computer's address on the network: {ip}", ip=self.info.public_ip),
             tr("Settings: {file}", file=CONFIG_FILE.name),
             tr("Stop the server with Ctrl+C"),
         ], copyright_line=__copyright__)
@@ -246,7 +247,7 @@ class Server:
         url = f"http://{self._local_ip()}:{config.port}/ping"
         answer = await self.loop.run_in_executor(None, _fetch, url, 5.0)
         if answer != "pong":
-            return self._failed(tr("Join page"), tr("The join page didn't answer on this Mac."))
+            return self._failed(tr("Join page"), tr("The join page didn't answer on this computer."))
         print_step_result("ok", tr("Ready at {url}", url=f"http://localhost:{config.port}"))
         return True
 
@@ -262,9 +263,9 @@ class Server:
         if not config.playit:
             print_step_result("off", tr("Turned off in config.json, only your wifi can play."))
             return True
-        binary = find_playitd(config.playit_path)
+        binary = await self.loop.run_in_executor(None, find_playitd, config.playit_path)
         if not binary:
-            print_step_result("warn", tr("playit/playitd-macos is missing, only your wifi can play."))
+            print_step_result("warn", tr("playit/{name} is missing, only your wifi can play.", name=playitd_name()))
             print_step_detail(tr("See \"Play with friends from home\" in README.md for how to fix that."))
             return True
         if "playit" in self.skipped:
@@ -365,7 +366,7 @@ class Server:
             note = tr("the address changes every start")
             print_step_result("ok", tr("{url} (Cloudflare, {note})", url=paint(url, LIGHT_BLUE), note=note))
             return True
-        missing = find_cloudflared(config.cloudflared_path) is None
+        missing = IS_MAC and find_cloudflared(config.cloudflared_path) is None
         tips = [tr("Double-click get-cloudflared.command once, then try {reload}.",
                    reload=paint("/reload", LIGHT_BLUE, bold=True))] if missing else [
             tr("Check the internet connection, then try {reload}.", reload=paint("/reload", LIGHT_BLUE, bold=True))]
@@ -418,7 +419,7 @@ class Server:
 
     async def _start_cloudflare(self):
         """Returns (url, None) or (None, problem)."""
-        binary = find_cloudflared(self.config.cloudflared_path)
+        binary = await self.loop.run_in_executor(None, find_cloudflared, self.config.cloudflared_path, True)
         if not binary:
             return None, tr("cloudflared is missing, so there is no HTTPS address from Cloudflare.")
         ready = threading.Event()
@@ -460,7 +461,7 @@ class Server:
         with self._tunnel_lock:
             if self.tunnel is not None:
                 return
-            binary = find_cloudflared(self.config.cloudflared_path)
+            binary = find_cloudflared(self.config.cloudflared_path, True)
             if not binary:
                 log.warning("cloudflared is missing, so there is no HTTPS address from Cloudflare.")
                 return
@@ -659,6 +660,12 @@ class Server:
         self.stop_everything()
         restore_terminal()
         sys.stdout.flush()
+        if IS_WINDOWS:
+            # Windows can't replace a running program with a new one, so the
+            # server stops and start.bat starts it again.
+            if os.environ.get("EM_LAUNCHER") != "start.bat":
+                say(tr("Start the server again with start.bat (it restarts by itself when started that way)."))
+            os._exit(RESTART_AFTER_FAILURE_EXIT_CODE if after_failure else RESTART_EXIT_CODE)
         env = dict(os.environ)
         if after_failure:
             env[AFTER_FAILED_START] = "1"
@@ -669,7 +676,7 @@ class Server:
             os.execve(sys.executable, [sys.executable, "-m", "server"], env)
         except OSError as error:
             log.error("Could not restart the server: %s. Start it again with start.command.", error)
-            os.kill(os.getpid(), signal.SIGINT)
+            signal.raise_signal(signal.SIGINT)
 
     def stop_everything(self) -> None:
         if self._stopping.is_set():
@@ -792,7 +799,7 @@ def add_commands(server: Server) -> None:
             lines.append(tr("Join page:   {url}", url=paint(info.tunnel_url, LIGHT_BLUE, bold=True)))
         else:
             lines.append(tr("Join page:   HTTPS isn't ready yet"))
-        lines.append(tr("On this Mac: {url}", url=f"http://localhost:{config.port}"))
+        lines.append(tr("On this computer: {url}", url=f"http://localhost:{config.port}"))
         if info.playit_address:
             lines.append(tr("playit.gg:   {address}", address=info.playit_address))
         with output_lock():
@@ -857,7 +864,7 @@ def add_commands(server: Server) -> None:
 
     def stop(_argument: str) -> None:
         say(tr("Stopping the server..."))
-        os.kill(os.getpid(), signal.SIGINT)
+        signal.raise_signal(signal.SIGINT)
 
     console.add("changeservername", "/changeservername <name>", "Give the server a new name", change_name)
     console.add("language", "/language <English|Swedish>", "Change the language in this window", change_language)

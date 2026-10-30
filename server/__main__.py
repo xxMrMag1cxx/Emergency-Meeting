@@ -49,9 +49,14 @@ def _stop_on_signal(signum, frame) -> None:
 
 
 def main() -> None:
-    for name in ("SIGTERM", "SIGHUP"):  # for example when the Terminal window is closed
+    # For example when the Terminal window is closed (SIGBREAK on Windows: Ctrl+Break)
+    for name in ("SIGTERM", "SIGHUP", "SIGBREAK"):
         if hasattr(signal, name):
             signal.signal(getattr(signal, name), _stop_on_signal)
+    if sys.platform == "win32":
+        # The "selector" loop keeps receiving UDP after a player's computer has
+        # gone away. Windows' default loop could stop receiving in older Python.
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())  # type: ignore[attr-defined]
     try:
         asyncio.run(run())
     except KeyboardInterrupt:

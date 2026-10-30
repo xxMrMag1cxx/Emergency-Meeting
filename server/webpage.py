@@ -234,7 +234,7 @@ INVITE_SECTION = Template(
 HOST_SECTION = Template(
     """
   <section aria-labelledby="host-title">
-    <h2 id="host-title">This is the Mac's own page</h2>
+    <h2 id="host-title">This is the server computer's own page</h2>
     <p>Among Us requires HTTPS, so phones and computers should use this address:</p>
     <p class="host-link"><a href="$tunnel_url">$tunnel_url</a></p>
     <div class="qr host-qr">$qr</div>

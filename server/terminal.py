@@ -32,6 +32,7 @@ from typing import Callable, Deque, Dict, List, Optional, Tuple
 
 from . import i18n
 from .i18n import tr
+from .platforms import IS_WINDOWS, enable_windows_terminal, read_windows_key, stdin_is_terminal, windows_key_waiting
 
 log = logging.getLogger("console")
 
@@ -96,7 +97,8 @@ def _mac_dark_mode() -> bool:
 def enable_colors(wanted: bool, theme: str = "auto") -> None:
     """Colors only if they are turned on and the output goes to a real Terminal window."""
     global _enabled, _palette
-    _enabled = bool(wanted) and "NO_COLOR" not in os.environ and sys.stdout.isatty()
+    _enabled = (bool(wanted) and "NO_COLOR" not in os.environ and sys.stdout.isatty()
+                and enable_windows_terminal())
     if theme not in PALETTES:
         theme = "dark" if sys.platform != "darwin" or _mac_dark_mode() else "light"
     _palette = PALETTES[theme]
@@ -261,6 +263,18 @@ def wait_for_enter(seconds: float) -> bool:
     if sys.stdin is None:
         time.sleep(seconds)
         return False
+    if IS_WINDOWS:
+        if not stdin_is_terminal():
+            time.sleep(seconds)
+            return False
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            while windows_key_waiting():
+                if read_windows_key() in ("\r", "\n"):
+                    print(flush=True)
+                    return True
+            time.sleep(0.05)
+        return False
     try:
         import select
         ready, _, _ = select.select([sys.stdin], [], [], seconds)
@@ -291,13 +305,32 @@ def choose_language(default: str = "en") -> str:
     options = list(i18n.LANGUAGES.items())  # [("English", "en"), ("Swedish", "sv")]
     codes = [code for _, code in options]
     selected = codes.index(default) if default in codes else 0
-    try:
-        import termios
-        import tty
-        fd = sys.stdin.fileno()
-        saved = termios.tcgetattr(fd)
-    except Exception:
-        return codes[selected]
+    if IS_WINDOWS:
+        if not (stdin_is_terminal() and enable_windows_terminal()):
+            return codes[selected]
+
+        def read() -> bytes:
+            return read_windows_key().encode("utf-8")
+
+        def keys_one_at_a_time(on: bool) -> None:
+            pass  # msvcrt reads one key at a time anyway
+    else:
+        try:
+            import termios
+            import tty
+            fd = sys.stdin.fileno()
+            saved = termios.tcgetattr(fd)
+        except Exception:
+            return codes[selected]
+
+        def read() -> bytes:
+            return os.read(fd, 64)
+
+        def keys_one_at_a_time(on: bool) -> None:
+            if on:
+                tty.setcbreak(fd)
+            else:
+                termios.tcsetattr(fd, termios.TCSADRAIN, saved)
 
     width = max(len(name) for name, _ in options) + 5
 
@@ -322,11 +355,11 @@ def choose_language(default: str = "en") -> str:
     sys.stdout.flush()
 
     try:
-        tty.setcbreak(fd)
+        keys_one_at_a_time(True)
         pending = b""
         chosen = False
         while not chosen:
-            data = os.read(fd, 64)
+            data = read()
             if not data:
                 break
             pending += data
@@ -354,7 +387,7 @@ def choose_language(default: str = "en") -> str:
                 sys.stdout.write("\x1b[3E")
                 sys.stdout.flush()
     finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, saved)
+        keys_one_at_a_time(False)
         sys.stdout.write("\x1b[?25h")  # show the cursor again
         sys.stdout.flush()
     return codes[selected]
@@ -650,19 +683,21 @@ class InputLine:
 
     def start(self) -> bool:
         try:
-            import termios
-            import tty
-            self._saved_tty = termios.tcgetattr(self.fd)
+            if not IS_WINDOWS:
+                import termios
+                self._saved_tty = termios.tcgetattr(self.fd)
             size = os.get_terminal_size(self.out.fileno())
         except Exception:
             return False
         if size.lines < 6 or size.columns < 20:
             return False
         with _print_lock:
-            try:
-                tty.setcbreak(self.fd)
-            except Exception:
-                return False
+            if not IS_WINDOWS:  # on Windows msvcrt reads one key at a time without showing it
+                try:
+                    import tty
+                    tty.setcbreak(self.fd)
+                except Exception:
+                    return False
             self._rows, self._columns = size.lines, size.columns
             # Make room, set the scroll region (that moves the cursor to the top)
             # and go back to where the text was, inside the region.
@@ -689,6 +724,8 @@ class InputLine:
             self.out.flush()
             if self._saved_stderr is not None:
                 sys.stderr = self._saved_stderr
+            if IS_WINDOWS:
+                return
             try:
                 import termios
                 termios.tcsetattr(self.fd, termios.TCSADRAIN, self._saved_tty)
@@ -750,15 +787,22 @@ class InputLine:
     def read_line(self) -> Optional[str]:
         """Waits for Enter and returns the line. None when the window is closed."""
         while not self._lines:
-            try:
-                data = os.read(self.fd, 1024)
-            except InterruptedError:
-                continue
-            except OSError:
-                return None
-            if not data:
-                return None
-            for key in self._decoder.decode(data):
+            if IS_WINDOWS:
+                try:
+                    keys = read_windows_key()
+                except (OSError, EOFError):
+                    return None
+            else:
+                try:
+                    data = os.read(self.fd, 1024)
+                except InterruptedError:
+                    continue
+                except OSError:
+                    return None
+                if not data:
+                    return None
+                keys = self._decoder.decode(data)
+            for key in keys:
                 self._key(key)
             with _print_lock:
                 if self.active:
@@ -840,7 +884,12 @@ def start_input_line() -> Optional[InputLine]:
     """Turns on the input line at the bottom if this is a real Terminal window."""
     global _input_line
     out = sys.stdout.stream if isinstance(sys.stdout, _Output) else None
-    if out is None or os.environ.get("TERM", "") in ("", "dumb") or sys.stdin is None:
+    if out is None or sys.stdin is None:
+        return None
+    if IS_WINDOWS:
+        if not enable_windows_terminal():
+            return None  # an old Windows console without ESC codes
+    elif os.environ.get("TERM", "") in ("", "dumb"):
         return None
     try:
         if not (out.isatty() and sys.stdin.isatty()):

@@ -28,3 +28,9 @@ config.json
 # Who may join (created by /ban and /allow)
 bans.json
 allowed-names.txt
+dist/
+
+# Downloaded by the server on Windows and Linux
+playit/playitd-linux-*
+playit/playitd-windows-*
+cloudflared.exe

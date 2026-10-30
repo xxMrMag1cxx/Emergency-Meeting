@@ -7,6 +7,7 @@ their own homes.
 | File                | What it is |
 |---------------------|------------|
 | `playitd-macos`     | playitd for Mac (Intel and Apple silicon, macOS 11 or newer) |
+| `playitd-windows-x86_64.exe`, `playitd-linux-*` | playitd for Windows and Linux (downloaded by the server) |
 | `LICENSE-playit.txt`| playit.gg's license (BSD-2), comes with the program |
 | `VERSION`           | which version of playitd is built |
 
@@ -22,6 +23,9 @@ Then GitHub builds a new `playitd-macos` and puts it here.
 `build-playit.command` in the project folder. It builds playitd on the Mac
 instead (takes 5–15 minutes the first time).
 
-On Linux the server looks for `playitd-linux-amd64` or
-`playitd-linux-aarch64` here. You can download them from
-<https://github.com/playit-cloud/playit-agent/releases>.
+**Windows and Linux:** playit.gg has ready-made files, so the server
+downloads the right one by itself from
+<https://github.com/playit-cloud/playit-agent/releases> (the version in
+`VERSION`) and saves it here as `playitd-windows-x86_64.exe`,
+`playitd-linux-amd64` or `playitd-linux-aarch64`. The Windows and Linux zip
+files on Emergency Meeting's Releases page already have it.

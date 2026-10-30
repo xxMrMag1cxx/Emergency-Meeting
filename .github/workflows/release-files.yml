@@ -1,0 +1,37 @@
+# Puts one zip file for each system (macOS, Windows, Linux) under "Assets"
+# when a release is published. See tools/make_release.py.
+#
+# You can also start it by hand for a release that already exists: the
+# Actions tab -> "Release files" -> Run workflow, and type the tag (v0.13.4-alpha).
+name: Release files
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The release's tag, for example v0.13.4-alpha"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  files:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Make the zip files
+        run: python3 tools/make_release.py --out dist
+
+      - name: Put them on the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" dist/*.zip --clobber

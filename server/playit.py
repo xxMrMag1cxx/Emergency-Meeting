@@ -28,7 +28,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import platform
 import re
 import secrets
 import shutil
@@ -46,6 +45,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 from . import __version__
 from .config import PROJECT_DIR
 from .i18n import tr
+from .platforms import IS_MAC, IS_WINDOWS, arch, download, end_process, exe, make_runnable, process_command
 from .terminal import say
 
 log = logging.getLogger("playit")
@@ -79,28 +79,73 @@ class PlayitError(Exception):
     """Something went wrong in the contact with playit.gg."""
 
 
-def find_playitd(setting: str) -> Optional[str]:
-    """Looks for playitd: first in the playit/ folder, then in the usual places."""
+def playitd_name() -> str:
+    """The name of playitd for this computer, in the playit/ folder."""
+    if IS_MAC:
+        return "playitd-macos"
+    if IS_WINDOWS:
+        return "playitd-windows-x86_64.exe"
+    return "playitd-linux-aarch64" if arch() == "arm64" else "playitd-linux-amd64"
+
+
+# playit.gg's own files for Windows and Linux (there are none for Mac, so the
+# Mac file is built by GitHub Actions, see playit/README.md).
+PLAYIT_DOWNLOADS = {
+    "playitd-windows-x86_64.exe": "playitd-windows-x86_64.exe",
+    "playitd-linux-amd64": "playit-linux-amd64",
+    "playitd-linux-aarch64": "playit-linux-aarch64",
+}
+
+
+def playit_version() -> str:
+    try:
+        return (PLAYIT_DIR / "VERSION").read_text(encoding="utf-8").strip() or "1.1.0"
+    except OSError:
+        return "1.1.0"
+
+
+def find_playitd(setting: str, download_if_missing: bool = True) -> Optional[str]:
+    """
+    Looks for playitd: first in the playit/ folder, then in the usual places.
+    On Windows and Linux it is downloaded from playit.gg's GitHub page if it's missing.
+    """
     if setting and setting != "auto":
         return setting if Path(setting).is_file() else None
 
-    candidates: List[Path] = []
-    if platform.system() == "Darwin":
-        candidates.append(PLAYIT_DIR / "playitd-macos")
-    elif platform.system() == "Linux":
-        machine = platform.machine().lower()
-        name = "aarch64" if machine in ("aarch64", "arm64") else "amd64"
-        candidates.append(PLAYIT_DIR / f"playitd-linux-{name}")
-    candidates.append(PLAYIT_DIR / "playitd")
+    candidates: List[Path] = [PLAYIT_DIR / playitd_name(), PLAYIT_DIR / exe("playitd")]
     found = shutil.which("playitd")
     if found:
         candidates.append(Path(found))
-    candidates += [Path("/opt/homebrew/bin/playitd"), Path("/usr/local/bin/playitd")]
+    if not IS_WINDOWS:
+        candidates += [Path("/opt/homebrew/bin/playitd"), Path("/usr/local/bin/playitd")]
 
     for path in candidates:
         if path.is_file():
             return str(path)
+    if download_if_missing and playitd_name() in PLAYIT_DOWNLOADS:
+        return download_playitd()
     return None
+
+
+def download_playitd() -> Optional[str]:
+    """Downloads playit.gg's own playitd for Windows or Linux to the playit/ folder."""
+    name = playitd_name()
+    url = (f"https://github.com/playit-cloud/playit-agent/releases/download/"
+           f"v{playit_version()}/{PLAYIT_DOWNLOADS[name]}")
+    target = PLAYIT_DIR / name
+    log.info("Downloading playitd (%s)...", url)
+    PLAYIT_DIR.mkdir(exist_ok=True)
+    partial = target.with_name(target.name + ".part")
+    try:
+        ok = download(url, partial, "playitd") and partial.stat().st_size > 100000
+    except OSError:
+        ok = False
+    if not ok:
+        _remove(str(partial))
+        return None
+    partial.replace(target)
+    make_runnable(target)
+    return str(target)
 
 
 def parse_address(address: str) -> Optional[Tuple[str, int]]:
@@ -118,22 +163,6 @@ def resolve_ipv4(host: str) -> Optional[str]:
     except OSError:
         return None
     return infos[0][4][0] if infos else None
-
-
-def _end_process(pid: int) -> None:
-    """Asks a process to close, waits until it has, and forces it after 5 seconds."""
-    for signal_number, seconds in ((15, 5.0), (9, 2.0)):
-        try:
-            os.kill(pid, signal_number)
-        except OSError:
-            return  # it's gone
-        deadline = time.monotonic() + seconds
-        while time.monotonic() < deadline:
-            time.sleep(0.2)
-            try:
-                os.kill(pid, 0)
-            except OSError:
-                return
 
 
 def _remember_stop() -> None:
@@ -369,15 +398,10 @@ class Playit:
             pid = int(PID_FILE.read_text().strip())
         except (OSError, ValueError):
             return
-        try:
-            command = subprocess.run(
-                ["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True, timeout=5
-            ).stdout
-        except (OSError, subprocess.SubprocessError):
-            return
-        if "playitd" in command and "--secret" in command:
+        command = process_command(pid)
+        if "playitd" in command and ("--secret" in command or IS_WINDOWS):
             log.info("Closing an old playitd that was left (process %d).", pid)
-            _end_process(pid)
+            end_process(pid)
             _remember_stop()
 
     def _prepare_binary(self) -> None:
@@ -387,18 +411,7 @@ class Playit:
         Mac, and then macOS refuses to start it. We remove the mark, just like
         when you right-click and choose Open.
         """
-        path = Path(self.binary)
-        try:
-            if not os.access(path, os.X_OK):
-                path.chmod(path.stat().st_mode | 0o111)
-        except OSError:
-            pass
-        if platform.system() == "Darwin":
-            try:
-                subprocess.run(["xattr", "-d", "com.apple.quarantine", str(path)],
-                               capture_output=True, timeout=5)
-            except (OSError, subprocess.SubprocessError):
-                pass
+        make_runnable(Path(self.binary))
 
     def start_agent(self, secret: str) -> None:
         """Starts playitd. Raises OSError if it can't be started."""
@@ -408,8 +421,12 @@ class Playit:
         self._prepare_binary()
         # A new file every time: after /reboot the server has the same process number.
         self._starts += 1
-        self._socket_path = os.path.join(tempfile.gettempdir(), f"em-playitd-{os.getpid()}-{self._starts}.sock")
-        _remove(self._socket_path)
+        name = f"em-playitd-{os.getpid()}-{self._starts}.sock"
+        if IS_WINDOWS:
+            self._socket_path = r"\\.\pipe" + "\\" + name  # a "named pipe" on Windows
+        else:
+            self._socket_path = os.path.join(tempfile.gettempdir(), name)
+            _remove(self._socket_path)
         command = [self.binary, "--secret", secret, "--socket-path", self._socket_path]
         env = dict(os.environ, NO_COLOR="1", PLAYIT_LOG=os.environ.get("PLAYIT_LOG", "info"))
         log.debug("Starting the playit.gg tunnel...")
@@ -426,7 +443,7 @@ class Playit:
             )
         except OSError as error:
             log.error("Could not start playitd: %s", error)
-            if platform.system() == "Darwin":
+            if IS_MAC:
                 log.error("If macOS says the program can't be opened: right-click "
                           "playit/playitd-macos in Finder, choose Open and then Open again.")
             raise
@@ -459,7 +476,8 @@ class Playit:
                 PID_FILE.unlink()
         except (OSError, ValueError):
             pass
-        _remove(self._socket_path)
+        if not IS_WINDOWS:
+            _remove(self._socket_path)
 
     def restart_agent(self) -> bool:
         """Stops playitd, waits a moment and starts it again. False if it couldn't start."""

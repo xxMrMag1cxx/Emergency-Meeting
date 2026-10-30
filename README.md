@@ -1,9 +1,10 @@
 # Emergency Meeting
 
-> **Alpha:** Emergency Meeting works on macOS, but expect bugs.
+> **Alpha:** Emergency Meeting works on macOS, Windows and Linux, but expect bugs.
 > [Report them here](https://github.com/xxMrMag1cxx/Emergency-Meeting/issues).
 
-Emergency Meeting is a free, open source Among Us server you run on your own Mac. You and your
+Emergency Meeting is a free, open source Among Us server you run on your own
+computer (Mac, Windows or Linux). You and your
 friends join it from your phones, tablets and computers, at home or from your
 own homes, without changing anything in the router. It's written from scratch
 in Python, using only what comes with Python, and it has its own plugin system.
@@ -30,8 +31,13 @@ It was made with the help of AI, see [Made with AI](#made-with-ai).
 
 ## Requirements
 
-- A Mac with **macOS 12 Monterey or newer** (Intel or Apple silicon). So far
-  it's tested on a MacBook Pro (Intel) with macOS 12.7
+- A computer that runs the server:
+  - a Mac with **macOS 12 Monterey or newer** (Intel or Apple silicon), tested
+    on a MacBook Pro (Intel) with macOS 12.7 and a MacBook with macOS 27
+  - a PC with **Windows 10 or 11** (64-bit), see
+    [Get started on Windows](#get-started-on-windows)
+  - **Linux** on a 64-bit PC or ARM computer (for example a Raspberry Pi 4 or
+    5), see [Get started on Linux](#get-started-on-linux)
 - **Python 3.8 or newer** (see [step 1](#1-check-that-python-is-there))
 - Free accounts at **ngrok** and **playit.gg**, so that friends can join from
   their own homes (without them, only devices on your wifi can join)
@@ -44,11 +50,14 @@ It was made with the help of AI, see [Made with AI](#made-with-ai).
 ## Quick start
 
 1. Download the latest version from
-   [Releases](https://github.com/xxMrMag1cxx/Emergency-Meeting/releases)
-   (**Source code (zip)** under Assets) and unpack it.
-2. Double-click **`start.command`**. The first time, a short guide asks for
-   the language, a name for your server, a key from ngrok and a link to
-   approve on playit.gg, one thing at a time.
+   [Releases](https://github.com/xxMrMag1cxx/Emergency-Meeting/releases).
+   Under **Assets**, pick the file for your computer:
+   `Emergency-Meeting-<version>-macos.zip`, `-windows.zip` or `-linux.zip`.
+   Unpack it.
+2. Start the server: double-click **`start.command`** on the Mac or
+   **`start.bat`** on Windows, or run **`./start.sh`** on Linux. The first
+   time, a short guide asks for the language, a name for your server, a key
+   from ngrok and a link to approve on playit.gg, one thing at a time.
 3. When the box **SERVER IS ONLINE!** shows up, open the join page address on
    your phone (or scan the QR code), tap **Add to Among Us** and restart
    Among Us.
@@ -75,8 +84,9 @@ else, download the latest Python from <https://www.python.org/downloads/macos/>
 
 Download the latest version from
 [Releases](https://github.com/xxMrMag1cxx/Emergency-Meeting/releases): under
-**Assets**, click **Source code (zip)**. Unpack it. It doesn't matter where the folder ends up, all the files below
-are started with a double-click in Finder.
+**Assets**, click **`Emergency-Meeting-<version>-macos.zip`**. Unpack it. It
+doesn't matter where the folder ends up, all the files below are started with
+a double-click in Finder.
 
 > The first time macOS says a file can't be opened because it comes from the
 > internet: right-click the file, choose **Open** and then **Open** again.
@@ -147,15 +157,54 @@ Leave the server running and double-click **`test.command`**. The test client
 pretends to be two Among Us players: one hosts a game, the other joins with
 the game code. If everything works it prints `Everything works!`.
 
-### Updating to a new version
+## Get started on Windows
 
-Download the new ZIP from
+1. **Python:** download Python from
+   <https://www.python.org/downloads/windows/> and install it. Tick **Add
+   python.exe to PATH** in the installer.
+2. **The code:** download `Emergency-Meeting-<version>-windows.zip` from
+   [Releases](https://github.com/xxMrMag1cxx/Emergency-Meeting/releases)
+   (under **Assets**) and unpack it (right-click, **Extract All**).
+3. **Start:** double-click **`start.bat`**. If Windows Defender SmartScreen
+   says that it protected your PC, click **More info** and **Run anyway**. If
+   the Windows firewall asks if Python may communicate on networks, tick
+   **Private networks** and click **Allow access**.
+
+Everything else works like on the Mac: the guide the first time, the commands
+and the settings. The server downloads ngrok, playitd and cloudflared by
+itself when they are needed. Use **Windows Terminal** (standard in Windows 11)
+or the normal console in Windows 10: both show the colors and the line at the
+bottom where you type.
+
+Stop the server with `/stop`. (With **Ctrl+C** Windows also asks "Terminate
+batch job (Y/N)?" afterwards; answer `Y`.) `/reboot` restarts the server in
+the same window, as long as it was started with `start.bat`.
+
+## Get started on Linux
+
+1. **Python:** most Linux systems already have Python 3. Check with
+   `python3 --version` in a terminal, otherwise install it with the package
+   manager (for example `sudo apt install python3`).
+2. **The code:** download `Emergency-Meeting-<version>-linux.zip` from
+   [Releases](https://github.com/xxMrMag1cxx/Emergency-Meeting/releases) and
+   unpack it.
+3. **Start:** open a terminal in the folder and run `./start.sh`.
+
+The server downloads ngrok, playitd and cloudflared by itself when they are
+needed (for 64-bit PCs and ARM computers like the Raspberry Pi 4 and 5). If the
+computer has a firewall (for example `ufw`), open port 22023 for both TCP and
+UDP, so that devices on your wifi can reach it: `sudo ufw allow 22023`.
+
+## Updating to a new version
+
+Download the new ZIP for your computer from
 [Releases](https://github.com/xxMrMag1cxx/Emergency-Meeting/releases) and move
 these from the old folder, so that you don't have to redo the things that are
 only needed the first time:
 
 - `config.json` (the settings, the server's name and language)
 - `playit-key.txt`, `ngrok-key.txt` and `ngrok-address.txt`
+- `bans.json` and `allowed-names.txt`, if you have them
 - `cloudflared` and the `plugins` folder
 
 > Coming from 0.12.0 or older? Those files had Swedish names then
@@ -166,7 +215,8 @@ only needed the first time:
 ## Connecting with Among Us
 
 With playit.gg (see [below](#play-with-friends-from-home)) the player can be
-anywhere. Without playit.gg the device must be on the **same wifi** as the Mac.
+anywhere. Without playit.gg the device must be on the **same wifi** as the
+computer that runs the server.
 
 1. Open the HTTPS address the server printed in a browser on the device
    that will play, or scan the QR code in the Terminal window with the
@@ -194,7 +244,7 @@ The join page has three parts:
   game** next to a game, and the code is included in the message. Copy it
   or tap **Share** (on the phone) and send it in a chat.
 
-If you open `http://localhost:22023` on the Mac, it shows the address the
+If you open `http://localhost:22023` on the server's computer, it shows the address the
 friends should use, with a big QR code, the games and the message.
 
 ## Fixed HTTPS address with ngrok
@@ -211,7 +261,8 @@ friends only have to add the server to Among Us once.
    in).
 3. Open <https://dashboard.ngrok.com/get-started/your-authtoken> and copy
    your **Authtoken**.
-4. Click in the Terminal window, paste the key (Cmd+V) and press **Enter**.
+4. Click in the Terminal window, paste the key (Cmd+V on the Mac, Ctrl+V or a
+   right-click on Windows and Linux) and press **Enter**.
    The key doesn't show when you paste it, because it's secret. It doesn't
    matter if other lines show up in the window meanwhile.
 5. The server downloads the program ngrok by itself and then prints
@@ -268,7 +319,7 @@ game code. Send them the address in a chat (the join page has a ready-made
 message). The next time they just choose your server in the game.
 
 Phones don't need the "Local Network" permission, because the game goes
-through the internet instead of directly to the Mac.
+through the internet instead of directly to the server's computer.
 
 ### If something goes wrong
 
@@ -278,9 +329,11 @@ through the internet instead of directly to the Mac.
 - **PLAYIT.GG DOESN'T RECOGNIZE THE SERVER**: the key doesn't work anymore
   (for example if the server was removed on playit.gg). Delete
   `playit-key.txt` and restart the server, and a new link comes up.
-- **"playit.gg isn't here"** in the log: the file `playit/playitd-macos` is
-  missing. Download the ZIP again, or double-click `build-playit.command`
-  (see [playit/README.md](playit/README.md)).
+- **"playit.gg isn't here"** in the log: the program playitd is missing in
+  the `playit` folder. On the Mac: download the ZIP again, or double-click
+  `build-playit.command` (see [playit/README.md](playit/README.md)). On
+  Windows and Linux the server downloads it by itself, so check the internet
+  connection and restart the server.
 - **"The test packet didn't come through. Restarting playit.gg's program
   once..."**: right after a restart playit.gg sometimes needs a moment before
   it lets the new playitd in. The server waits a few seconds and tries again
@@ -402,7 +455,7 @@ server runs, or with TextEdit when the server is off.
 | `language`         | The language in the Terminal window: `English` or `Swedish` (asked the first time, change it with `/language`) |
 | `listen_ip`        | `0.0.0.0` = listen on all networks. Rarely needs to be changed |
 | `port`             | Port for both HTTP and the game. Among Us uses `22023` |
-| `public_ip`        | `auto` = the Mac's address on the home network. Can be set to your own address |
+| `public_ip`        | `auto` = the computer's address on the home network. Can be set to your own address |
 | `https_tunnel`     | `true` = start an HTTPS tunnel (ngrok, otherwise cloudflared) |
 | `ngrok`            | `true` = use ngrok, so that the HTTPS address is the same every time |
 | `ngrok_path`       | `auto` = look for ngrok by itself (the `ngrok/` folder first) and download it if it's missing |
@@ -418,7 +471,7 @@ server runs, or with TextEdit when the server is off.
 | `page_shows_games` | `true` = show the games and their codes on the join page |
 | `terminal_qr`      | `true` = show the HTTPS address as a QR code in the Terminal window |
 | `colors`           | `true` = colors in the Terminal window |
-| `color_theme`      | `auto` = follow the Mac's dark/light mode, `dark` = for a black background, `light` = for a white background |
+| `color_theme`      | `auto` = follow the Mac's dark/light mode (dark on Windows and Linux), `dark` = for a black background, `light` = for a white background |
 | `input_line`       | `true` = what you type stays on the last line of the Terminal window. `false` = type among the messages |
 | `log_files`        | `true` = save the Terminal window in `logs/<date>.log` and every round in `logs/games/` |
 | `keep_logs_days`   | Log files older than this many days are removed when the server starts. `0` = keep them all |
@@ -481,7 +534,9 @@ Files older than 14 days are removed when the server starts. Change that with
 
 This is an alpha, so some things are missing or rough:
 
-- Only tested on macOS. Linux will probably work, Windows isn't supported yet.
+- Tested the most on macOS. Windows and Linux are new in 0.13.4-alpha, so
+  please [report](https://github.com/xxMrMag1cxx/Emergency-Meeting/issues)
+  what doesn't work there.
 - Consoles (Switch, Xbox, PlayStation) can't join, because they don't allow
   custom servers.
 - Anyone who has the join page address can add the server, unless you use
@@ -506,7 +561,7 @@ This is an alpha, so some things are missing or rough:
 - **NGROK IS ALREADY IN USE**: the ngrok account is used by another computer
   or program. Close it and restart the server.
 - **"tried to connect with HTTPS directly to port 22023"** in the log: the game
-  is set to the Mac's IP address instead of the HTTPS address. Add the server
+  is set to the computer's IP address instead of the HTTPS address. Add the server
   again through the HTTPS address.
 - **"reached the server over HTTPS but never connected to the game over UDP"**
   in the log: the device reaches the server over the internet but not the game
@@ -629,6 +684,7 @@ server/
   mapdata/       the maps: walls, tasks, rooms and start places
   blackbox.py    "black box": saves what happened if someone is disconnected
   logfile.py     the log files: the day's log and a summary of every round
+  platforms.py   the differences between macOS, Windows and Linux
   access.py      bans and allowed names: bans.json, allowed-names.txt, /ban, /allow
   gamecode.py    game codes ("ABCDEF") and the numbers the game sends
   messages.py    reading and writing bytes
@@ -640,11 +696,14 @@ tools/
   testclient.py         two pretend Among Us games that test the server (host,
                         join, change color, change settings, chat, leave)
   check_translations.py finds text in the Terminal window that has no translation
-start.command               starts the server
-test.command                runs the test client
-get-cloudflared.command     downloads cloudflared
+  make_release.py       makes the zip files for macOS, Windows and Linux for a release
+start.command               starts the server on the Mac
+start.bat                   starts the server on Windows
+start.sh                    starts the server on Linux
+test.command                runs the test client (Mac)
+get-cloudflared.command     downloads cloudflared (Mac)
 build-playit.command        builds playitd on the Mac (rarely needed)
-.github/workflows/          GitHub builds playitd for Mac
+.github/workflows/          GitHub builds playitd for Mac and the zip files for a release
 ```
 
 All versions and what changed are in [CHANGELOG.md](CHANGELOG.md).
@@ -653,7 +712,8 @@ All versions and what changed are in [CHANGELOG.md](CHANGELOG.md).
 
 The protocol was mapped with the help of the open project
 [Impostor](https://github.com/Impostor/Impostor), which we use as a
-reference. No code is copied from there.
+reference. No code is copied from there, but the list of game versions that
+fit together (`server/protocol.py`) comes from Impostor's list.
 
 The map data in `server/mapdata/` comes from other open projects, see
 [server/mapdata/README.md](server/mapdata/README.md).
@@ -668,8 +728,9 @@ as long as what you share is under the same license.
 
 - The map data in `server/mapdata/` is also GPL-3.0 (from the projects listed
   in [server/mapdata/README.md](server/mapdata/README.md)).
-- `playit/playitd-macos` is built from playit.gg's open source code and has
-  its own license, BSD-2-Clause (`playit/LICENSE-playit.txt`).
+- playitd (`playit/playitd-macos`, and the Windows and Linux files that are
+  downloaded) is playit.gg's open source program and has its own license,
+  BSD-2-Clause (`playit/LICENSE-playit.txt`).
 
 Emergency Meeting is a fan project and has nothing to do with Innersloth.
 Among Us is a trademark of Innersloth LLC.
