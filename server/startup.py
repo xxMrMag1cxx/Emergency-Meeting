@@ -40,6 +40,7 @@ from dataclasses import dataclass, field
 from typing import Callable, List, Optional, Set
 
 from . import __copyright__, __version__, i18n
+from .access import Access, add_access_commands
 from .config import CONFIG_FILE, PROJECT_DIR, Config, forget_pending, save_config
 from .game import Game
 from .hazel import HazelServer
@@ -93,7 +94,8 @@ class Server:
         self.lobbies = LobbyManager()
         self.info = ServerInfo(config, config.resolved_public_ip(), self.lobbies)
         self.plugins = PluginManager()
-        self.game = Game(config, self.lobbies, self.plugins)
+        self.access = Access()
+        self.game = Game(config, self.lobbies, self.plugins, self.access)
         self.hazel = HazelServer(self.game.on_connect, self.game.on_message, self.game.on_disconnect,
                                  debug=config.debug)
         self.loop: Optional[asyncio.AbstractEventLoop] = None
@@ -863,6 +865,7 @@ def add_commands(server: Server) -> None:
     console.add("address", "/address", "Show the join page address and QR code again", address)
     console.add("say", "/say <message>", "Send a chat message to everyone in every game", say_to_all)
     add_settings_commands(console, config)
+    add_access_commands(server)
     console.add("reload", "/reload", "Start the HTTPS address again, and playit.gg if it doesn't work", reload)
     console.add("reboot", "/reboot", "Restart the whole server (everyone is disconnected)", reboot)
     console.add("stop", "/stop", "Stop the server (same as Ctrl+C)", stop)

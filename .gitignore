@@ -24,3 +24,7 @@ ngrok/
 
 # The settings are created the first time the server starts (with the server's name and language)
 config.json
+
+# Who may join (created by /ban and /allow)
+bans.json
+allowed-names.txt

@@ -19,14 +19,17 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from datetime import datetime
 from typing import Callable, List, Optional
 
-from . import protocol
+from . import __version__, protocol
 from .config import Config
 from .i18n import tr
 from .bots import BotConnection
 from .hazel import Connection
+from .access import Access
 from .lobby import GameState, Limbo, Lobby, LobbyManager, Player, RoundInfo
+from .logfile import save_game_summary
 from .messages import MessageReader, MessageWriter
 from .options import GameOptions, differences, read_options
 from .plugins import PluginManager
@@ -49,10 +52,12 @@ def translate_reason(why: str) -> str:
 
 
 class Game:
-    def __init__(self, config: Config, lobbies: LobbyManager, plugins: Optional[PluginManager] = None):
+    def __init__(self, config: Config, lobbies: LobbyManager, plugins: Optional[PluginManager] = None,
+                 access: Optional[Access] = None):
         self.config = config
         self.lobbies = lobbies
         self.plugins = plugins or PluginManager()
+        self.access = access or Access()
         self._next_client_id = 0
         # Plugin events that should run only after the game data has been passed on.
         self._after_forward: List[Callable[[], None]] = []
@@ -76,7 +81,25 @@ class Game:
             hs.game_version_text,
             tr(hs.platform_text),
         )
+        connection.puid = self.lobbies.puids.get(hs.name, "")
         self._check_game_version(connection)
+        if connection.connected:
+            self._check_access(connection)
+
+    def _check_access(self, connection: Connection) -> None:
+        """Banned players, and names that aren't allowed, get a message and are disconnected."""
+        hs = connection.handshake
+        assert hs is not None
+        ban = self.access.find_ban(hs.name, connection.puid)
+        if ban is not None:
+            log.warning("%s can't join: banned since %s. Use /unban %s to let them in again.",
+                        hs.name, ban.banned_at, ban.name)
+            connection.disconnect(Reason.CUSTOM, "You are banned from this server.")
+        elif self.config.only_allowed_names and not self.access.is_allowed(hs.name):
+            log.warning("%s can't join: the name isn't in allowed-names.txt. Use /allow %s to let them in.",
+                        hs.name, hs.name.strip())
+            connection.disconnect(Reason.CUSTOM, "This server only lets in players on its list. "
+                                                 "Ask the host to add your name.")
 
     def _check_game_version(self, connection: Connection) -> None:
         """
@@ -200,6 +223,8 @@ class Game:
             if len(lobby.players) >= lobby.options.max_players:
                 connection.disconnect(Reason.GAME_FULL)
                 return
+            if not self._version_fits(lobby, connection):
+                return
             if player is not None:  # was in another game
                 self.remove_player(player.lobby, player.client_id, Reason.EXIT_GAME)
             player = Player(connection, lobby)
@@ -243,17 +268,42 @@ class Game:
         player.connection.send_reliable(welcome)
         lobby.send_to_all(self._join_game_message(lobby, player), except_id=player.client_id)
 
+    def _version_fits(self, lobby: Lobby, connection: Connection) -> bool:
+        """
+        Can this player's version of Among Us play with the host's? If not (and
+        "allow_version_mixing" is false), the player gets a message and False.
+        """
+        host = lobby.host
+        if host is None or connection.handshake is None or host.connection.handshake is None:
+            return True
+        mine = connection.handshake.game_version
+        theirs = host.connection.handshake.game_version
+        if protocol.versions_fit(theirs, mine) or self.config.allow_version_mixing:
+            return True
+        log.warning(
+            "%s can't join %s: their game version (%s) doesn't fit with the host %s (%s). "
+            "allow_version_mixing is false",
+            connection.name, lobby.code, protocol.decode_game_version(mine),
+            host.name, protocol.decode_game_version(theirs),
+        )
+        connection.disconnect(Reason.CUSTOM, (
+            f"You and the host of this game have different versions of Among Us "
+            f"(you: {protocol.decode_game_version(mine)}, the host: {protocol.decode_game_version(theirs)}). "
+            f"Update Among Us so that you both have the newest version."
+        ))
+        return False
+
     @staticmethod
     def _warn_if_other_version(lobby: Lobby, player: Player) -> None:
+        """Versions that don't fit together, let in because of allow_version_mixing: a warning in the log."""
         host = lobby.host
         if host is None or host is player or not host.connection.handshake or not player.connection.handshake:
             return
         mine = player.connection.handshake.game_version
         theirs = host.connection.handshake.game_version
-        if mine != theirs:
+        if not protocol.versions_fit(theirs, mine):
             log.warning(
-                "%s has another game version (%s) than the host %s (%s). That can cause trouble, "
-                "update the game on both if things get weird.",
+                "%s has a game version (%s) that doesn't fit with the host %s (%s). Things can act up.",
                 player.name,
                 protocol.decode_game_version(mine),
                 host.name,
@@ -342,6 +392,39 @@ class Game:
             log.info("%s:   %s was killed by %s", lobby.code, victim, killer)
         for name in r.exiled:
             log.info("%s:   %s was voted out", lobby.code, name)
+        if self.config.log_files:
+            path = save_game_summary(lobby.code, self._round_summary_lines(lobby, result, minutes, seconds))
+            if path is not None:
+                log.info("%s: the round is saved in logs/games/%s", lobby.code, path.name)
+
+    @staticmethod
+    def _round_summary_lines(lobby: Lobby, result: str, minutes: int, seconds: int) -> List[str]:
+        """The round as text for logs/games/ (always English, so that it can be sent with a bug report)."""
+        r = lobby.round
+        options = lobby.options
+        lines = [
+            f"Emergency Meeting {__version__}: a round in {lobby.code}",
+            f"Date:     {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+            f"Map:      {options.map_name} ({options.mode_name}), {options.num_impostors} impostor(s)",
+            f"Result:   {result}",
+            f"Length:   {minutes} min {seconds} s, {r.meetings} meeting(s)",
+            "",
+            "Players:",
+        ]
+        for client_id, player in lobby.players.items():
+            hs = player.connection.handshake
+            role = r.roles.get(client_id)
+            details = [
+                "host" if client_id == lobby.host_id else ("bot" if player.is_bot else "player"),
+                str(protocol.ROLES.get(role, f"role {role}")) if role is not None else "no role",
+            ]
+            if hs is not None and not player.is_bot:
+                details.append(f"{hs.platform_text}, game version {hs.game_version_text}")
+            lines.append(f"  {player.name}: " + ", ".join(details))
+        lines += ["", "Killed:"] + [f"  {victim} by {killer}" for victim, killer in r.deaths] + (
+            [] if r.deaths else ["  nobody"])
+        lines += ["", "Voted out:"] + [f"  {name}" for name in r.exiled] + ([] if r.exiled else ["  nobody"])
+        return lines
 
     def handle_alter_game(self, connection: Connection, message: MessageReader, reliable: bool) -> None:
         player, lobby = self._host_check(connection, message)
@@ -373,6 +456,9 @@ class Game:
         if target is None:
             return
         log.info("%s: %s was %s by the host", lobby.code, target.name, tr("banned") if ban else tr("kicked"))
+        if ban and not target.is_bot:
+            saved = self.access.ban(target.name, getattr(target.connection, "puid", ""), f"host:{player.name}")
+            log.info("%s can't join the server again. Use /unban %s to change that.", saved.name, saved.name)
 
         w = MessageWriter().start_message(protocol.KICK_PLAYER)
         w.write_int32(lobby.code_int).write_packed_int32(client_id).write_bool(ban).end_message()

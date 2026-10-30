@@ -482,6 +482,44 @@ def render(
     )
 
 
+PASSWORD_SECTION = Template(
+    """
+  <section aria-labelledby="password-title">
+    <h2 id="password-title">This server has a password</h2>
+    <p class="sub">Ask the host for it. You only need to type it once on this device.</p>
+    $wrong
+    <form method="post" action="/login">
+      <label for="password" class="muted">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
+      <button class="btn wide" type="submit">Open the join page</button>
+    </form>
+  </section>
+  <style>
+    form input { display: block; width: 100%; margin: 6px 0 12px; padding: 10px 12px; border-radius: 12px;
+                 border: 2px solid var(--hull-edge); background: var(--space); color: var(--text); font: 1rem var(--body); }
+    .wrong { color: #ff8f8f; font-weight: 600; }
+  </style>
+"""
+)
+
+
+def render_password_page(name: str, wrong: bool = False) -> str:
+    """The page that is shown instead of the join page until the right password is typed."""
+    heading = full_name(name, colored=False)
+    heading_html = "Emergency Meeting"
+    if heading != heading_html:
+        heading_html += f' - <span class="server-name">{escape(name)}</span>'
+    wrong_html = '<p class="wrong" role="alert">That wasn\'t the right password. Try again.</p>' if wrong else ""
+    return PAGE.substitute(
+        heading=escape(heading),
+        heading_html=heading_html,
+        status_extra="",
+        content=PASSWORD_SECTION.substitute(wrong=wrong_html),
+        footer="",
+        script="",
+    )
+
+
 def games_json(lobbies, show_games: bool) -> list:
     """The games on the server, for the list on the page."""
     if not show_games:

@@ -74,6 +74,17 @@ class Config:
     # Let older versions of the game join.
     allow_older_game_versions: bool = True
 
+    # Let players join a game even if their version of Among Us doesn't fit
+    # with the host's. false = they get a message and can't join that game.
+    allow_version_mixing: bool = False
+
+    # Only let in the names in allowed-names.txt (add them with /allow).
+    only_allowed_names: bool = False
+
+    # A password for the join page, so that only those who know it can add
+    # the server. "" = no password.
+    page_password: str = ""
+
     # Load plugins from the plugins/ folder.
     plugins: bool = True
 
@@ -93,6 +104,13 @@ class Config:
     # Keep what you type on the last line of the Terminal window, with new
     # messages showing up above it. false = type among the messages like before.
     input_line: bool = True
+
+    # Save everything the Terminal window shows in logs/<date>.log, and a
+    # summary of every round in logs/games/.
+    log_files: bool = True
+
+    # Remove log files older than this many days when the server starts (0 = keep them all).
+    keep_logs_days: int = 14
 
     # Set to true to see every single packet in the log (good for debugging).
     debug: bool = False

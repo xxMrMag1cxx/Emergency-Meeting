@@ -20,6 +20,8 @@ HTTPS from the internet and passes it on as ordinary HTTP to here.
 from __future__ import annotations
 
 import base64
+import hashlib
+import hmac
 import json
 import logging
 import socket
@@ -28,7 +30,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Optional, Tuple
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 from . import gamecode
 from .config import Config
@@ -36,9 +38,19 @@ from .i18n import tr
 from .lobby import Lobby, LobbyManager
 from .protocol import DisconnectReason
 from .region import region_info_json
-from .webpage import games_json, render
+from .webpage import games_json, render, render_password_page
 
 log = logging.getLogger("http")
+
+# The pages that need the password when "page_password" is set. The game's own
+# requests (/api/...) can't send a password, so they are always open.
+PROTECTED = ("/", "/games.json", "/spel.json", "/regionInfo.json")
+COOKIE = "em_pass"
+
+
+def password_cookie(password: str) -> str:
+    """What the browser keeps after the right password (not the password itself)."""
+    return hashlib.sha256(("emergency-meeting:" + password).encode("utf-8")).hexdigest()[:32]
 
 
 def ip_to_number(ip: str) -> int:
@@ -201,11 +213,52 @@ class MatchmakerHandler(BaseHTTPRequestHandler):
 
     # --- Requests ---------------------------------------------------
 
+    def _needs_password(self, path: str) -> bool:
+        password = self.config.page_password
+        if not password or path not in PROTECTED:
+            return False
+        for part in (self.headers.get("Cookie") or "").split(";"):
+            key, _, value = part.strip().partition("=")
+            if key == COOKIE and hmac.compare_digest(value, password_cookie(password)):
+                return False
+        return True
+
+    def _password_page(self, path: str, wrong: bool = False) -> None:
+        if path == "/":
+            self._send(401 if wrong else 200, render_password_page(self.config.server_name, wrong),
+                       "text/html; charset=utf-8")
+        else:
+            self._send(401, {"error": "password needed"})
+
+    def _login(self) -> None:
+        length = min(int(self.headers.get("Content-Length") or 0), 4096)
+        form = parse_qs(self.rfile.read(length).decode("utf-8", errors="replace"))
+        typed = (form.get("password") or [""])[0]
+        password = self.config.page_password
+        if not password or not hmac.compare_digest(typed.encode("utf-8"), password.encode("utf-8")):
+            log.info("Someone typed the wrong password on the join page (%s)", self._who())
+            time.sleep(1)  # makes guessing slow
+            self._password_page("/", wrong=True)
+            return
+        log.info("Someone typed the right password on the join page (%s)", self._who())
+        secure = "; Secure" if self._via_https() else ""
+        self.send_response(303)
+        self.send_header("Location", "/")
+        self.send_header("Set-Cookie", f"{COOKIE}={quote(password_cookie(password))}; Path=/; "
+                                       f"Max-Age=2592000; HttpOnly; SameSite=Lax{secure}")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def do_GET(self) -> None:
         path, _query = self._path()
         log.debug("GET %s (%s)", self.path, self._who())
 
-        if path == "/":
+        if self._needs_password(path):
+            if path == "/":
+                log.info("Someone opened the join page and was asked for the password (%s)", self._who())
+            self._password_page(path)
+
+        elif path == "/":
             url, port, is_https = self._public_address()
             log.info("Someone opened the join page (%s)", self._who())
             page = render(
@@ -272,6 +325,9 @@ class MatchmakerHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path, query = self._path()
+        if path == "/login":
+            self._login()
+            return
         body = self._read_json()
 
         if path == "/api/user":
@@ -281,6 +337,8 @@ class MatchmakerHandler(BaseHTTPRequestHandler):
             username = body.get("Username", "?")
             log.info("Player '%s' fetched a token (step 1 of connecting, %s)", username, self._who())
             self.info.lobbies.waiting_for_udp[username] = (time.monotonic(), self._who())
+            if body.get("Puid"):
+                self.info.lobbies.puids[username] = str(body["Puid"])
             token = {
                 "Content": {
                     "Puid": body.get("Puid", ""),

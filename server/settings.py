@@ -65,6 +65,8 @@ def parse_value(name: str, text: str) -> Tuple[object, Optional[str]]:
             return None, tr("{name} must be a whole number.", name=name)
         if name == "port" and not 1 <= number <= 65535:
             return None, tr("The port must be between 1 and 65535.")
+        if number < 0:
+            return None, tr("{name} can't be negative.", name=name)
         return number, None
 
     # Text
@@ -91,6 +93,8 @@ def parse_value(name: str, text: str) -> Tuple[object, Optional[str]]:
             return None, tr("{name} must be an address like {example}.", name=name, example="0.0.0.0")
         return text, None
     if not text:
+        if name == "page_password":
+            return "", None  # no password
         return None, tr("{name} can't be empty.", name=name)
     return text, None
 

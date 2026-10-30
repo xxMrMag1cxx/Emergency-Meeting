@@ -55,6 +55,7 @@ class Connection:
         # Filled in by the game logic: the player's number and which lobby they are in.
         self.client_id = 0
         self.player: Optional[object] = None
+        self.puid = ""  # the account id the game sent with its token, if any
 
         # Remembers the latest messages, in case something goes wrong.
         self.recorder = FlightRecorder()

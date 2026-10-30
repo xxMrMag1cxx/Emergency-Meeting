@@ -15,11 +15,12 @@ import asyncio  # noqa: E402
 import signal  # noqa: E402
 from typing import Set  # noqa: E402
 
-from . import i18n  # noqa: E402
+from . import __version__, i18n  # noqa: E402
 from .config import config_exists, load_config, rename_old_files, save_config  # noqa: E402
 from .i18n import tr  # noqa: E402
+from .logfile import remove_old_logs  # noqa: E402
 from .startup import Server  # noqa: E402
-from .terminal import restore_terminal, setup_logging  # noqa: E402
+from .terminal import restore_terminal, setup_logging, start_log_file  # noqa: E402
 from .wizard import first_start  # noqa: E402
 
 
@@ -29,6 +30,9 @@ async def run() -> None:
     config = load_config()
     i18n.set_language(config.language)
     setup_logging(config.debug, config.colors, config.color_theme)
+    if config.log_files:
+        start_log_file(__version__)
+        remove_old_logs(config.keep_logs_days)
 
     skipped: Set[str] = set()
     if is_first_start:

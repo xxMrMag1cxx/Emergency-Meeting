@@ -318,6 +318,12 @@ messages show up above it. The up and down arrows bring back earlier commands.
 | `/language <English\|Swedish>` | Changes the language in the Terminal window |
 | `/settings` | Prints out all server settings |
 | `/setting <name> = <value>` | Changes a setting's value, for example `/setting allow_older_game_versions = false`. Without `= <value>` it shows the value |
+| `/ban <name>` | Bans a player from the server (also after a restart). If the player is online, they are disconnected |
+| `/unban <name or number>` | Lets a banned player in again (the number is the one `/bans` shows) |
+| `/bans` | Shows the banned players |
+| `/allow <name>` | Adds a name to the allowed names, see [Who can join](#who-can-join) |
+| `/disallow <name>` | Removes a name from the allowed names |
+| `/allowed` | Shows the allowed names |
 | `/reload` | Starts the HTTPS address again, and playit.gg too if it doesn't work. If playit.gg works it keeps running, so nobody is disconnected |
 | `/reboot` | Restarts the whole server in the same window. Everyone is disconnected |
 | `/stop` | Stops the server (the same as Ctrl+C) |
@@ -405,12 +411,17 @@ server runs, or with TextEdit when the server is off.
 | `playit_path`      | `auto` = look for playitd by itself (the `playit/` folder first) |
 | `allow_future_game_versions` | `true` = newer versions of Among Us than the server is made for can join. `false` = they get a message in the game instead |
 | `allow_older_game_versions`  | `true` = older versions of Among Us can join. `false` = they get a message in the game instead |
+| `allow_version_mixing` | `false` = a player whose version doesn't fit with the host's can't join that game. `true` = let them in anyway |
+| `only_allowed_names` | `true` = only the names in `allowed-names.txt` can join (add them with `/allow`) |
+| `page_password`    | A password for the join page. `""` = no password |
 | `plugins`          | `true` = load plugins from the `plugins/` folder |
 | `page_shows_games` | `true` = show the games and their codes on the join page |
 | `terminal_qr`      | `true` = show the HTTPS address as a QR code in the Terminal window |
 | `colors`           | `true` = colors in the Terminal window |
 | `color_theme`      | `auto` = follow the Mac's dark/light mode, `dark` = for a black background, `light` = for a white background |
 | `input_line`       | `true` = what you type stays on the last line of the Terminal window. `false` = type among the messages |
+| `log_files`        | `true` = save the Terminal window in `logs/<date>.log` and every round in `logs/games/` |
+| `keep_logs_days`   | Log files older than this many days are removed when the server starts. `0` = keep them all |
 | `debug`            | `true` = show every packet in the log, good for troubleshooting |
 
 ### Game versions
@@ -425,6 +436,47 @@ the log says so, because some things might not work. With
 `"allow_older_game_versions": false` older versions can't. They get a message
 in the game that tells them why.
 
+In each game, players must also have a version that fits with the host's.
+Versions from the same update fit together (for example 2026.7.20 on PC and
+2026.7.21 on a phone, both 19.0). A player with a version from another update
+gets a message in the game and can't join that game. Set
+`"allow_version_mixing": true` to let them in anyway (things can act up).
+
+## Who can join
+
+**Bans.** When the host bans someone in Among Us (the ban button in the
+lobby), the server remembers it in `bans.json`, so that the player can't join
+the server again, not even after a restart. The server also remembers the
+player's account, so changing the name doesn't help. You can also ban from the
+Terminal window with `/ban <name>`, see the list with `/bans` and let someone
+in again with `/unban <name>` or `/unban <number>`. Kicking (not banning) only
+removes the player from that game.
+
+**Allowed names.** Add the names of your friends with `/allow <name>` (they
+are saved in `allowed-names.txt`, one per line, which you can also edit with
+TextEdit). Then turn the list on with `/setting only_allowed_names = true` and
+`/reboot`. After that, only those names can join, and others get a message in
+the game. Upper and lower case don't matter.
+
+**Password for the join page.** With `/setting page_password = <password>` and
+`/reboot`, the join page asks for the password before it shows how to add the
+server and the game codes. Each device only has to type it once. Among Us
+itself can't send a password, so the password hides the page and the address,
+but it doesn't stop someone who already has the address. Use the allowed names
+for that.
+
+## Log files
+
+Everything the Terminal window shows (without colors and the QR code) is also
+saved in `logs/<date>.log`, one file per day, so nothing is lost when the
+window is closed. Every round gets a short summary in `logs/games/`: the map,
+who played with which role, who was killed, who was voted out and who won.
+When you [report a bug](https://github.com/xxMrMag1cxx/Emergency-Meeting/issues),
+attach the day's log file and the round.
+
+Files older than 14 days are removed when the server starts. Change that with
+`keep_logs_days`, or turn the files off with `"log_files": false`.
+
 ## Known limitations
 
 This is an alpha, so some things are missing or rough:
@@ -432,8 +484,8 @@ This is an alpha, so some things are missing or rough:
 - Only tested on macOS. Linux will probably work, Windows isn't supported yet.
 - Consoles (Switch, Xbox, PlayStation) can't join, because they don't allow
   custom servers.
-- Anyone who has the join page address can add the server. They still need
-  a game code to join a game, so only share the address with friends.
+- Anyone who has the join page address can add the server, unless you use
+  the allowed names, see [Who can join](#who-can-join).
 - The Mac has to be awake and running the server while you play.
 - Everyone should have the same (or almost the same) version of Among Us as
   the host. The server warns in the log if the versions differ, see
@@ -576,6 +628,8 @@ server/
   navigation.py  finds paths around the walls for bots
   mapdata/       the maps: walls, tasks, rooms and start places
   blackbox.py    "black box": saves what happened if someone is disconnected
+  logfile.py     the log files: the day's log and a summary of every round
+  access.py      bans and allowed names: bans.json, allowed-names.txt, /ban, /allow
   gamecode.py    game codes ("ABCDEF") and the numbers the game sends
   messages.py    reading and writing bytes
   protocol.py    all numbers and names Among Us uses

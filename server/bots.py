@@ -92,6 +92,7 @@ class BotConnection:
             platform_raw=MessageWriter().write_string("Bot").to_bytes(),
         )
         self.address = ("bot", 0)
+        self.puid = ""
         self.player: Optional[object] = None
         self.connected = True
         self.control_net_id: Optional[int] = None

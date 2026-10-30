@@ -193,13 +193,44 @@ BUILT_FOR_VERSIONS = (
 )
 
 
+# Versions that can play in the same game. A player whose version isn't in
+# the same group as the host's can't join that game (unless
+# "allow_version_mixing" is true in config.json). Versions that aren't listed
+# only fit with exactly the same version. From Impostor's list (GPL-3.0).
+COMPATIBLE_VERSIONS = [
+    [(2024, 3, 1), (2024, 4, 1), (2024, 4, 2), (2024, 8, 10)],
+    [(2024, 8, 11)],  # 16.0.0
+    [(2025, 4, 15)],  # 16.0.5 and 16.1.0
+    [(2025, 7, 15), (2025, 9, 12), (2025, 10, 9), (2025, 11, 6), (2025, 12, 8), (2025, 11, 5),
+     (2026, 1, 22), (2026, 2, 2), (2026, 1, 12), (2026, 3, 17), (2026, 3, 18), (2026, 4, 23)],  # 17.x
+    [(2026, 7, 15), (2026, 7, 16)],  # 18.0
+    [(2026, 7, 20), (2026, 7, 21)],  # 19.0
+]
+_GROUP_OF = {encode_game_version(*version): index
+             for index, group in enumerate(COMPATIBLE_VERSIONS) for version in group}
+
+
+def plain_version(value: int) -> int:
+    """The version without the revision (the last part, which mods use for "host authority")."""
+    return value - value % 50
+
+
+def versions_fit(host: int, player: int) -> bool:
+    """True if a player with this game version can play in a game with this host."""
+    host, player = plain_version(host), plain_version(player)
+    if host == player:
+        return True
+    group = _GROUP_OF.get(host)
+    return group is not None and group == _GROUP_OF.get(player)
+
+
 def compare_game_version(value: int) -> int:
     """
     -1 if the game is older than the version the server is made for, 0 if it's
     the same and 1 if it's newer. The revision (the last part, which mods use
     for "host authority") doesn't count.
     """
-    plain = value - value % 50
+    plain = plain_version(value)
     if plain < min(BUILT_FOR_VERSIONS):
         return -1
     if plain > max(BUILT_FOR_VERSIONS):

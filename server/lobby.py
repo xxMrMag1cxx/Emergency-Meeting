@@ -462,6 +462,8 @@ class LobbyManager:
         # Players who fetched a token over HTTPS but haven't connected over UDP yet:
         # name -> (time, address). Used to find connection problems.
         self.waiting_for_udp: Dict[str, Tuple[float, str]] = {}
+        # name -> the account id ("Puid") the game sent when it fetched its token
+        self.puids: Dict[str, str] = {}
 
     def create(self, options: GameOptions) -> Lobby:
         while True:

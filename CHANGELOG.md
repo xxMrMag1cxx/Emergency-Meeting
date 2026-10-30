@@ -2,6 +2,23 @@
 
 All versions of Emergency Meeting. Versions before 0.12.1 had Swedish texts.
 
+## 0.13.3-alpha (2026-10-30)
+
+- Bans that last: when the host bans someone, the server saves it in
+  `bans.json` (with the player's account, so a new name doesn't help). New
+  commands `/ban`, `/unban` and `/bans`
+- Allowed names: with `"only_allowed_names": true`, only the names in
+  `allowed-names.txt` can join. New commands `/allow`, `/disallow` and
+  `/allowed`
+- A password for the join page with `page_password`
+- Log files: everything in the Terminal window is saved in `logs/<date>.log`,
+  every round gets a summary in `logs/games/`, and old files are removed after
+  `keep_logs_days` (14)
+- Game versions per game: a player whose version doesn't fit with the host's
+  gets a message and can't join that game. `allow_version_mixing` lets them in
+  anyway. PC and phone versions from the same update fit together, and the log
+  no longer warns about them
+
 ## 0.13.2-alpha (2026-10-30)
 
 - If a room is online, `/reboot` first warns that all online rooms will be

@@ -611,6 +611,7 @@ class _Output:
         return self._stream
 
     def write(self, text: str) -> int:
+        _tee(text)
         line = _input_line
         if line is not None and line.active:
             return line.write(text)
@@ -803,7 +804,9 @@ class InputLine:
         if line.strip() and not self.hidden:
             if not self._history or self._history[-1] != line:
                 self._history.append(line)
-            self.write(f"{paint(PROMPT, GRAY)}{line}\n")  # what you typed stays in the window
+            echo = f"{paint(PROMPT, GRAY)}{line}\n"  # what you typed stays in the window
+            _tee(echo)
+            self.write(echo)
         self._lines.append(line)
 
     def _browse(self, step: int) -> None:
@@ -817,6 +820,20 @@ class InputLine:
 
 
 _input_line: Optional[InputLine] = None
+_log_file = None  # a logfile.LogFile while the server writes a log file
+
+
+def start_log_file(version: str) -> None:
+    """Everything written in the window from now on is also saved in logs/<date>.log."""
+    global _log_file
+    from .logfile import LogFile
+    _log_file = LogFile(version)
+    atexit.register(_log_file.close)
+
+
+def _tee(text: str) -> None:
+    if _log_file is not None:
+        _log_file.write(text)
 
 
 def start_input_line() -> Optional[InputLine]:
